@@ -42,6 +42,9 @@ export const BROWSER_STOP_HARD_RELOAD_RUNTIME_CAPABILITY = 'browser.stop-hard-re
 // Older hosts have no browser.findInPage, so streamed panes answer Cmd+F with a notice instead of the find bar.
 export const BROWSER_FIND_IN_PAGE_RUNTIME_CAPABILITY = 'browser.find-in-page.v1' as const
 
+// Older hosts neither stream page prompts nor relay browser.pagePromptAnswer, so phones don't ask for them without this.
+export const BROWSER_PAGE_PROMPTS_RUNTIME_CAPABILITY = 'browser.page-prompts.v1' as const
+
 // Headless, identity, certificate trust, page zoom, site display, stop/hard reload and find in page are host-conditional, so getStatus adds them itself.
 export const BROWSER_RUNTIME_CAPABILITIES = [
   BROWSER_EXPECT_URL_RUNTIME_CAPABILITY,

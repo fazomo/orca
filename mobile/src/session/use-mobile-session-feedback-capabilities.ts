@@ -8,6 +8,13 @@ import type { StructuredAgentSessionHostSupport } from './native-chat/agent-sess
 // A strong ease-out both ways; the presentation turns this fade into a short rise.
 const TOAST_EASING = Easing.bezier(0.23, 1, 0.32, 1)
 
+/** What the host can do for its streamed browser pages beyond frames and input. */
+export type MobileBrowserHostSupport = { certificateTrust: boolean; pagePrompts: boolean }
+export const NO_BROWSER_HOST_SUPPORT: MobileBrowserHostSupport = {
+  certificateTrust: false,
+  pagePrompts: false
+}
+
 export function useMobileSessionFeedbackCapabilities(scope: MobileSessionTerminalRuntimeModel) {
   const {
     client,
@@ -33,7 +40,7 @@ export function useMobileSessionFeedbackCapabilities(scope: MobileSessionTermina
     onLiveInputSendFailureRef
   } = scope
   const [browserScreencastSupported, setBrowserScreencastSupported] = useState<boolean | null>(null)
-  const [browserCertificateTrustSupported, setBrowserCertificateTrustSupported] = useState(false)
+  const [browserHostSupport, setBrowserHostSupport] = useState(NO_BROWSER_HOST_SUPPORT)
   // Hide history entry when the host cannot serve it rather than opening a dead end.
   const [agentSessionHistorySupported, setAgentSessionHistorySupported] = useState<boolean | null>(
     null
@@ -155,8 +162,8 @@ export function useMobileSessionFeedbackCapabilities(scope: MobileSessionTermina
   return {
     browserScreencastSupported,
     setBrowserScreencastSupported,
-    browserCertificateTrustSupported,
-    setBrowserCertificateTrustSupported,
+    browserHostSupport,
+    setBrowserHostSupport,
     agentSessionHistorySupported,
     setAgentSessionHistorySupported,
     quickCommandsSupported,

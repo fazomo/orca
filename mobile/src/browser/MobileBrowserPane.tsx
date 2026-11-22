@@ -35,6 +35,10 @@ import { resolveMobileBrowserAddressSync } from './pane-view/mobile-browser-addr
 import { MobileBrowserPaneView } from './pane-view/MobileBrowserPaneView'
 import { useMobileBrowserInteractions } from './page-interaction/use-mobile-browser-interactions'
 import { useMobileBrowserStream } from './screencast/use-mobile-browser-stream'
+import { useMobileBrowserPagePrompts } from './page-interaction/use-mobile-browser-page-prompts'
+import type { MobileBrowserHostSupport } from '../session/use-mobile-session-feedback-capabilities'
+import { useRouteRelaysCapability } from '../worktree/execution-hosts/workspace-server-context'
+import { BROWSER_PAGE_PROMPTS_RUNTIME_CAPABILITY } from '../../../src/shared/browser/runtime/browser-runtime-capabilities'
 import { useBrowserBinaryScreencastGrant } from './screencast/use-browser-binary-screencast-grant'
 
 type MobileBrowserPaneProps = {
@@ -42,7 +46,7 @@ type MobileBrowserPaneProps = {
   worktreeId: string
   tab: MobileBrowserTab
   screencastSupported: boolean | null
-  certificateTrustSupported: boolean
+  hostSupport: MobileBrowserHostSupport
   keyboardLift: number
   bottomInset: number
   onToast: (message: string, durationMs?: number) => void
@@ -62,7 +66,7 @@ export function MobileBrowserPane({
   worktreeId,
   tab,
   screencastSupported,
-  certificateTrustSupported,
+  hostSupport,
   keyboardLift,
   bottomInset,
   onToast
@@ -86,6 +90,8 @@ export function MobileBrowserPane({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dialog, setDialog] = useState<BrowserDialogState | null>(null)
+  const pagePrompts = useMobileBrowserPagePrompts({ client, onToast })
+  const relaysPagePrompts = useRouteRelaysCapability(BROWSER_PAGE_PROMPTS_RUNTIME_CAPABILITY)
   const [pointerModifiers, setPointerModifiers] = useState<BrowserPointerModifier[]>([])
   const [zoom, setZoom] = useState<BrowserZoomState>(DEFAULT_ZOOM)
   const [layout, setLayout] = useState<BrowserTouchLayout | null>(null)
@@ -186,6 +192,10 @@ export function MobileBrowserPane({
   const { frameGeometry, frameLayers, pageParams, renderedFrameSource, sendBrowserRequest } =
     useMobileBrowserStream({
       binaryScreencastGranted,
+      // A desktop relaying to a server must also forward the answers.
+      pagePromptsSupported: hostSupport.pagePrompts && relaysPagePrompts,
+      handlePageEvent: pagePrompts.handlePageEvent,
+      clearPagePrompt: pagePrompts.clearPrompt,
       browserViewMode,
       busyRef,
       cacheKey,
@@ -328,9 +338,11 @@ export function MobileBrowserPane({
       bottomInset={bottomInset}
       browserViewMode={browserViewMode}
       busy={busy}
-      certificateTrustSupported={certificateTrustSupported}
+      certificateTrustSupported={hostSupport.certificateTrust}
       controlsDisabled={controlsDisabled}
       dialog={dialog}
+      pagePrompt={pagePrompts.prompt}
+      answerPagePrompt={pagePrompts.answer}
       error={error}
       frameGeometry={frameGeometry}
       frameLayers={frameLayers}
