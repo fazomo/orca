@@ -23,6 +23,9 @@ export type ClientAskListenerOwner = Pick<OrcaRuntimeService, 'getOrchestrationD
 const listenersByOwner = new WeakMap<ClientAskListenerOwner, Map<string, ClientAskListener>>()
 // The name each computer last pulled with, so a send while it's away can still name it.
 const namesByOwner = new WeakMap<ClientAskListenerOwner, Map<string, string>>()
+// The pairing each re-made pairing replaced, as its computer said: the one way a conversation of an
+// older pairing reaches another device. Kept since this Orca started, as names are.
+const successorsByOwner = new WeakMap<ClientAskListenerOwner, Map<string, string>>()
 
 function listenersOf(owner: ClientAskListenerOwner): Map<string, ClientAskListener> {
   let listeners = listenersByOwner.get(owner)
@@ -49,6 +52,11 @@ export function clientAskPullStarted(
       listeners.delete(key)
     }
     return null
+  }
+  if (pull.previousPairing !== undefined && pull.previousPairing !== caller.fingerprint) {
+    const successors = successorsByOwner.get(owner) ?? new Map<string, string>()
+    successorsByOwner.set(owner, successors)
+    successors.set(pull.previousPairing, caller.fingerprint)
   }
   // The pairing it replaced pulls no more, so that pairing's last session stops counting.
   for (const [other, listener] of listeners) {
@@ -143,20 +151,33 @@ export function requireListeningClient(
   return client
 }
 
-/** The listening computer a conversation's environment names: the same device first, so copies
- *  sharing an installation id stay apart; else the one installation that re-paired. */
+// Re-pairs one pairing can go through before its conversations are no longer followed.
+const MAX_REPAIRS = 8
+
+/** The listening computer a conversation's environment names: the same device, or the device of the
+ *  pairing that replaced the conversation's own. A copy sharing the installation id under a pairing
+ *  of its own never takes it; while none is listening, the reply waits for the original's pull. */
 export function listenerForClientEnvironment(
   owner: ClientAskListenerOwner,
-  deviceId: string,
-  installationId: string
+  conversation: { deviceId: string; installationId: string; pairing: string }
 ): ClientAskListener | null {
   const listeners = listenersOf(owner)
-  const same = listeners.get(keyOf(deviceId, installationId))
+  const same = listeners.get(keyOf(conversation.deviceId, conversation.installationId))
   if (same) {
     return same
   }
-  const repaired = [...listeners.values()].filter(
-    (listener) => listener.installationId === installationId
-  )
-  return repaired.length === 1 ? repaired[0]! : null
+  const successors = successorsByOwner.get(owner)
+  let pairing = successors?.get(conversation.pairing)
+  for (let hop = 0; pairing !== undefined && hop < MAX_REPAIRS; hop += 1) {
+    const current = pairing
+    const repaired = [...listeners.values()].find(
+      (listener) =>
+        listener.fingerprint === current && listener.installationId === conversation.installationId
+    )
+    if (repaired) {
+      return repaired
+    }
+    pairing = successors?.get(current)
+  }
+  return null
 }

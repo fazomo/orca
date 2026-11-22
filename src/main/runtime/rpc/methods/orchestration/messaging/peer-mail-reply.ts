@@ -97,11 +97,10 @@ export async function replyOverPeerMail(args: {
   if (clientParts !== null) {
     // Under the pairing the computer pulls with now; while it is offline, on this conversation,
     // which it pulls when it reconnects under the same pairing.
-    const client = listenerForClientEnvironment(
-      runtime,
-      clientParts.deviceId,
-      clientParts.installationId
-    )
+    const client = listenerForClientEnvironment(runtime, {
+      ...clientParts,
+      pairing: conversation.peer_fingerprint
+    })
     const current = client
       ? db.openHomePeerMailConversation({
           environmentId: clientEnvironmentId(client.deviceId, client.installationId),

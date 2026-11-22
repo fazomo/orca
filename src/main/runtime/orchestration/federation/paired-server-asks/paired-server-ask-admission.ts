@@ -36,7 +36,13 @@ async function admit(runtime: OrcaRuntimeService, row: PairedServerAskRow): Prom
   try {
     const routed = await deliverPeerMailToBot(
       runtime,
-      { ...ask, conversationId: row.conversation_id, messageId: row.message_id },
+      // To the bot its people allowed or approved, by id: a rename since must not hand it to another.
+      {
+        ...ask,
+        to: `bot:${row.bot_id}`,
+        conversationId: row.conversation_id,
+        messageId: row.message_id
+      },
       pairing,
       peerMailSenderSnapshot(ask.senderLabel, ask.sender),
       {
