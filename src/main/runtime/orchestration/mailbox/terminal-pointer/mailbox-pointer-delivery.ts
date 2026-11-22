@@ -20,15 +20,6 @@ import {
 import { resumePendingOrchestrationMailboxPointer } from './mailbox-pointer-resume'
 import { stageOrchestrationMailboxPointer } from './mailbox-pointer-stage'
 
-const DEFAULT_POINTER_ENTER_DELAY_MS = 500
-
-function pointerEnterDelayMs(): number {
-  const configured = Number(process.env.ORCA_E2E_ORCHESTRATION_POINTER_ENTER_DELAY_MS)
-  return Number.isFinite(configured) && configured >= 1 && configured <= 60_000
-    ? configured
-    : DEFAULT_POINTER_ENTER_DELAY_MS
-}
-
 export class OrchestrationMailboxPointerDelivery<TWaiter extends OrchestrationMessageWaiter> {
   private readonly state = new OrchestrationMailboxPointerState()
   private readonly coldParkedPtys = new Set<string>()
@@ -75,14 +66,14 @@ export class OrchestrationMailboxPointerDelivery<TWaiter extends OrchestrationMe
       this.parkRedelivery(mailboxHandle, options.reservedTypes)
       return
     }
-    // As in observeAgentWorking: a cold-parked terminal's deferred Enter waits for rest.
-    const deferredEnter =
+    // As in observeAgentWorking: a cold-parked terminal's deferred notice waits for rest.
+    const deferredSubmit =
       this.coldParkedPtys.has(ptyId) && terminal.lastAgentStatus !== 'idle'
         ? null
-        : this.state.takeDeferredEnter(ptyId)
-    if (deferredEnter) {
+        : this.state.takeDeferredSubmit(ptyId)
+    if (deferredSubmit) {
       this.state.parkDelivery(ptyId, mailboxHandle, options.reservedTypes)
-      deferredEnter()
+      deferredSubmit()
       return
     }
     if (this.state.hasFlight(ptyId)) {
@@ -149,7 +140,6 @@ export class OrchestrationMailboxPointerDelivery<TWaiter extends OrchestrationMe
       messages: unread,
       heldDeliveryId,
       newestSequence,
-      enterDelayMs: pointerEnterDelayMs(),
       settle: (ptyId, flight) => this.settle(ptyId, flight),
       redrive: (redriveMailbox, force) => this.redrive(redriveMailbox, force)
     })
@@ -164,9 +154,6 @@ export class OrchestrationMailboxPointerDelivery<TWaiter extends OrchestrationMe
     const { flight, releasedMailboxes } = this.state.retirePty(ptyId)
     if (flight) {
       noteQuestionEdge({ kind: 'pane', ptyId })
-    }
-    if (flight?.enterTimer != null) {
-      clearTimeout(flight.enterTimer)
     }
     if (flight?.stagedMessageIds.length) {
       const db = this.deps.getDb()
@@ -206,7 +193,7 @@ export class OrchestrationMailboxPointerDelivery<TWaiter extends OrchestrationMe
     if (this.coldParkedPtys.has(ptyId)) {
       this.state.deferFlightUntilIdle(ptyId)
     }
-    this.state.takeDeferredEnter(ptyId)?.()
+    this.state.takeDeferredSubmit(ptyId)?.()
   }
 
   markPtyColdParked(ptyId: string): void {

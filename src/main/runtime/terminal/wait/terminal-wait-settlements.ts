@@ -230,7 +230,7 @@ export abstract class OrcaRuntimeWithResolveExitWaiters extends OrcaRuntimeWithB
 
   // Why: OpenCode's and Pi's composers have no prompt glyph, so only their own panes are read with
   // their layouts.
-  private hasComposerDraft(ptyId: string, context: TerminalCursorContext | null): boolean {
+  protected hasComposerDraft(ptyId: string, context: TerminalCursorContext | null): boolean {
     const agent = this.getPaneTerminalAgent(ptyId)
     if (context && (agent === 'opencode' || agent === 'opencode2')) {
       return openCodeComposerHoldsDraft(context)

@@ -1,8 +1,12 @@
 import type { TerminalIdentityReadContext } from '../../terminal/query/terminal-identity-read-context'
 import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { OrcaRuntimeWithRefreshFloatingWorkspacePtyLiveness } from '../../terminal/lifecycle/floating-session-liveness'
-import { writeOrchestrationPointerWithSettlement } from '../mailbox/terminal-pointer/mailbox-pointer-pty-write'
-import type { WriteSettlement } from '../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
+import {
+  sendMailboxPointerPrompt,
+  type MailboxPointerPromptOutcome,
+  type MailboxPointerPromptRequest
+} from '../mailbox/terminal-pointer/mailbox-pointer-prompt-send'
+import type { TerminalCursorContext } from '../../../../shared/terminal/input/terminal-composer-draft'
 import type { RuntimeLeafRecord } from '../../terminal/records/runtime-terminal-state-records'
 import type { ExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import { getPtyExecutionHost } from '../../../../shared/terminal/pty/lifecycle/terminal-execution-host'
@@ -27,15 +31,25 @@ export abstract class OrcaRuntimeWithWriteOrchestrationPointerPty extends OrcaRu
     context?: TerminalIdentityReadContext
   ): string
 
-  protected writeOrchestrationPointerPty(
-    ptyId: string,
-    data: string
-  ): WriteSettlement | Promise<WriteSettlement> {
-    return writeOrchestrationPointerWithSettlement({
-      ptyId,
-      data,
-      controller: this.ptyController
-    })
+  protected abstract hasComposerDraft(ptyId: string, context: TerminalCursorContext | null): boolean
+
+  /** A mailbox notice takes the agent-prompt path every send takes; plugin hooks are for prompts
+   *  people send, so Orca's own notice skips them as it always has. */
+  protected sendOrchestrationPointerPrompt(
+    request: MailboxPointerPromptRequest
+  ): Promise<MailboxPointerPromptOutcome> {
+    const composer = (ptyId: string) =>
+      this.readWholeScreenModel(ptyId)?.emulator.getCursorLineContext() ?? null
+    return sendMailboxPointerPrompt(
+      {
+        getBinding: (handle) => this.getTerminalPromptRequestBinding(handle),
+        sendPrompt: (handle, prompt, options) =>
+          this.sendAgentPromptAfterPluginHooks(handle, prompt, options),
+        composerHoldsDraft: (ptyId) => this.hasComposerDraft(ptyId, composer(ptyId)),
+        readTypedInputAt: (ptyId) => this.terminalRunFacts.readLastTypedInputAt(ptyId)
+      },
+      request
+    )
   }
 
   /** The terminal a staged pointer's Enter goes to, re-read so a replaced process gets none. */

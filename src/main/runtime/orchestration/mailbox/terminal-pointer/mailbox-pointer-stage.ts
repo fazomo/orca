@@ -12,15 +12,7 @@ import type {
   OrchestrationMailboxDeliveryFlight,
   OrchestrationMailboxPointerState
 } from './mailbox-pointer-state'
-import {
-  submitOrchestrationMailboxPointer,
-  type OrchestrationMailboxPointerSubmitTarget
-} from './mailbox-pointer-submit'
-
-import {
-  isSettledWrite,
-  type WriteSettlement
-} from '../../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
+import { submitOrchestrationMailboxPointer } from './mailbox-pointer-submit'
 
 type StagePointerArgs<TWaiter extends OrchestrationMessageWaiter> = {
   deps: PointerDeliveryDependencies<TWaiter>
@@ -30,7 +22,6 @@ type StagePointerArgs<TWaiter extends OrchestrationMessageWaiter> = {
   messages: readonly OrchestrationMailboxPointerMessage[]
   heldDeliveryId?: string
   newestSequence: number
-  enterDelayMs: number
   settle: (ptyId: string, flight: OrchestrationMailboxDeliveryFlight) => void
   redrive: (mailboxHandle: string, force?: boolean) => void
 }
@@ -63,10 +54,7 @@ export function stageOrchestrationMailboxPointer<TWaiter extends OrchestrationMe
   flight.processIncarnation = expectedTarget.processIncarnation
   flight.stagedMessageIds = args.messages.map((message) => message.id)
   try {
-    if (
-      !db.stageMailboxPointerEnter(flight.stagedMessageIds, reservationTarget) ||
-      !db.markMailboxPointerWriteAttempted(flight.stagedMessageIds, reservationTarget)
-    ) {
+    if (!db.stageMailboxPointerEnter(flight.stagedMessageIds, reservationTarget)) {
       args.settle(ptyId, flight)
       // A reservation conflict must still drain parks left by earlier flights.
       args.redrive(args.mailboxHandle)
@@ -79,101 +67,32 @@ export function stageOrchestrationMailboxPointer<TWaiter extends OrchestrationMe
   }
   // The watermark must not outlive its DB reservation or concurrent delivery stays parked.
   args.state.setWatermark(args.mailboxHandle, args.newestSequence, ptyId)
-  // Only `refused` proves no bytes left, so only `refused` may release the reservation.
-  const settlePointerWrite = (settlement: WriteSettlement): void => {
-    if (settlement.outcome === 'unverifiable') {
-      preserveAmbiguousWrite()
-      return
-    }
-    finishPointerWriteAndStageEnter(args, ptyId, flight, expectedTarget, settlement)
-  }
-  const preserveAmbiguousWrite = (): void => {
-    if (!args.state.isCurrentFlight(ptyId, flight)) {
-      return
-    }
-    args.state.deactivateWatermark(args.mailboxHandle, args.newestSequence, ptyId)
-    args.settle(ptyId, flight)
-  }
-  try {
-    const writeResult = args.deps.writePty(
+  submitOrchestrationMailboxPointer(
+    {
+      mailboxOwner: args.deps.mailboxOwner,
+      state: args.state,
+      getDb: args.deps.getDb,
+      resolveSubmitTarget: args.deps.resolveSubmitTarget,
+      isLeafPtyProvenAbsent: args.deps.isLeafPtyProvenAbsent,
+      isPtyAwaitingUserInput: args.deps.isPtyAwaitingUserInput,
+      sendPrompt: args.deps.sendPrompt,
+      settle: args.settle,
+      redrive: args.redrive
+    },
+    {
+      mailboxHandle: args.mailboxHandle,
+      messages: args.messages,
+      newestSequence: args.newestSequence,
       ptyId,
-      formatMessagePointer(
+      flight,
+      expectedTarget,
+      prompt: formatMessagePointer(
         args.messages.length,
         args.mailboxHandle,
         args.deps.getCliCommand(expectedTarget.terminal.handle),
         args.heldDeliveryId,
         expectedTarget.terminal.handle
-      )
-    )
-    if (isSettledWrite(writeResult)) {
-      settlePointerWrite(writeResult)
-      return
+      ).trim()
     }
-    void writeResult.then(settlePointerWrite, preserveAmbiguousWrite).catch(() => undefined)
-  } catch {
-    preserveAmbiguousWrite()
-  }
-}
-
-function finishPointerWriteAndStageEnter<TWaiter extends OrchestrationMessageWaiter>(
-  args: StagePointerArgs<TWaiter>,
-  ptyId: string,
-  flight: OrchestrationMailboxDeliveryFlight,
-  expectedTarget: OrchestrationMailboxPointerSubmitTarget,
-  settlement: Extract<WriteSettlement, { outcome: 'accepted' | 'refused' }>
-): void {
-  let delayedSettle = false
-  try {
-    if (!args.state.isCurrentFlight(ptyId, flight)) {
-      return
-    }
-    const db = args.deps.getDb()
-    if (settlement.outcome === 'refused') {
-      db?.markAsUndelivered(flight.stagedMessageIds)
-      if (args.state.clearWatermark(args.mailboxHandle, args.newestSequence, ptyId)) {
-        // A delivery parked behind this watermark has to drain now that it is gone.
-        args.redrive(args.mailboxHandle)
-      }
-      return
-    }
-    const submitEnter = (): void =>
-      submitOrchestrationMailboxPointer(
-        {
-          mailboxOwner: args.deps.mailboxOwner,
-          state: args.state,
-          getDb: args.deps.getDb,
-          resolveSubmitTarget: args.deps.resolveSubmitTarget,
-          isLeafPtyProvenAbsent: args.deps.isLeafPtyProvenAbsent,
-          isPtyAwaitingUserInput: args.deps.isPtyAwaitingUserInput,
-          writePty: args.deps.writePty,
-          settle: args.settle,
-          redrive: args.redrive
-        },
-        {
-          mailboxHandle: args.mailboxHandle,
-          messages: args.messages,
-          newestSequence: args.newestSequence,
-          ptyId,
-          flight,
-          expectedTarget
-        }
-      )
-    flight.submitEnter = submitEnter
-    const deferredEnter = flight.idleObservedWhileDeferred
-      ? args.state.takeDeferredEnter(ptyId)
-      : null
-    if (!deferredEnter && !flight.deferredUntilIdle) {
-      flight.enterTimer = setTimeout(() => {
-        flight.enterTimer = null
-        flight.submitEnter = null
-        submitEnter()
-      }, args.enterDelayMs)
-    }
-    delayedSettle = true
-    deferredEnter?.()
-  } finally {
-    if (!delayedSettle) {
-      args.settle(ptyId, flight)
-    }
-  }
+  )
 }
