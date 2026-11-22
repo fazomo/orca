@@ -22655,6 +22655,7 @@
         "keepOpen": "Manter aberto",
         "bannerRunning": "Worker de orquestração · Fecha 2 minutos após terminar",
         "bannerFinished": "Worker de orquestração concluído · Fecha em {{countdown}}",
+        "bannerFinishedStatus": "Worker de orquestração concluído · Fecha em breve",
         "temporaryBadge": "Temporário"
       }
     },

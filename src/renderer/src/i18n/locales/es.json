@@ -20881,6 +20881,7 @@
         "keepOpen": "Mantener abierto",
         "bannerRunning": "Trabajador de orquestación · Se cierra 2 minutos después de terminar",
         "bannerFinished": "Trabajador de orquestación finalizado · Se cierra en {{countdown}}",
+        "bannerFinishedStatus": "Trabajador de orquestación finalizado · Se cerrará pronto",
         "temporaryBadge": "Temporal"
       }
     },

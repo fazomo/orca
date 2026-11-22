@@ -21571,6 +21571,7 @@
         "keepOpen": "開いたままにする",
         "bannerRunning": "オーケストレーションワーカー · 完了の2分後に閉じます",
         "bannerFinished": "オーケストレーションワーカーが完了 · {{countdown}}後に閉じます",
+        "bannerFinishedStatus": "オーケストレーションワーカーが完了 · まもなく閉じます",
         "temporaryBadge": "一時的"
       }
     },
