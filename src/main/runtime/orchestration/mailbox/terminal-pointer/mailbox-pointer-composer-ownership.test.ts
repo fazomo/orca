@@ -12,6 +12,7 @@ import {
   TERMINAL_HANDLE
 } from './orchestration-mailbox-notification-test-harness'
 import { OrchestrationDb } from '../../db/orchestration-db'
+import { writeUnverifiable } from '../../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
 import '../../db/contract-constants'
 import '../../db/messages/mailbox-routing-page'
 import '../../db/dispatch-row-writer'
@@ -99,6 +100,27 @@ describe('mailbox notice composer ownership', () => {
 
     expect(pointerCount(write)).toBe(1)
     expect(enterCount(write)).toBe(0)
+    db.close()
+  })
+
+  it('counts an unconfirmed paste as neither delivered nor ready for Enter', async () => {
+    const { db, message, runtime, write } = await idleCodexWithMail()
+    runtime.setPtyController({
+      write,
+      writeWithSettlement: async (ptyId: string, data: string) => {
+        write(ptyId, data)
+        return writeUnverifiable('provider_threw_after_handoff', true)
+      },
+      kill: vi.fn(),
+      getForegroundProcess: async () => null
+    })
+
+    runtime.deliverPendingMessagesForHandle(TERMINAL_HANDLE)
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(pointerCount(write)).toBe(1)
+    expect(enterCount(write)).toBe(0)
+    expect(db.getMessageById(message.id)).toMatchObject({ delivered_at: null, read: 0 })
     db.close()
   })
 })

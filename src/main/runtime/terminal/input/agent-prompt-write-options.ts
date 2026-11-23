@@ -32,4 +32,7 @@ export type RuntimeAgentPromptWriteOptions = Omit<RuntimeTerminalWriteOptions, '
   onHeldPromptRetry?: (retry: Promise<void>) => void
 }
 
+/** A settled prompt write that may or may not have reached the program. */
+export const AGENT_PROMPT_WRITE_UNVERIFIABLE = 'terminal_write_unverifiable'
+
 export type AgentPromptExpectedBinding = { ptyId: string; processIncarnation: string }

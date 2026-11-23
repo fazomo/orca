@@ -1,5 +1,8 @@
 import { OrcaRuntimeWithTitlelessPaneAgentIdentity } from '../wait/titleless-pane-agent-identity'
-import type { RuntimeAgentPromptWriteOptions } from './agent-prompt-write-options'
+import {
+  AGENT_PROMPT_WRITE_UNVERIFIABLE,
+  type RuntimeAgentPromptWriteOptions
+} from './agent-prompt-write-options'
 import {
   AGENT_PROMPT_SUBMIT,
   isHeldAgentPromptDraft,
@@ -13,6 +16,7 @@ import {
 import { TUI_AGENT_CONFIG } from '../../../../shared/agent-launch/catalog/tui-agent-config'
 import { readOpenCodeComposerDraft } from '../../../../shared/terminal/input/opencode-composer'
 import type { TerminalAgent } from '../../../../shared/agent-status/identity/terminal-agent'
+import { writeUnverifiable } from '../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
 
 /** How often a held prompt is re-read when the agent sets no blind-retry delay. */
 const HELD_PROMPT_RECHECK_MS = 1000
@@ -37,6 +41,30 @@ function armsOpenCodePasteRetry(held: HeldAgentPrompt): boolean {
 }
 
 export abstract class OrcaRuntimeWithResubmitHeldAgentPrompt extends OrcaRuntimeWithTitlelessPaneAgentIdentity {
+  /** A prompt write; a caller that asks for settlement waits for it, and only an accepted write
+   *  counts. Others keep the synchronous write, so their timing is untouched. */
+  protected writeAgentPromptInput(
+    ptyId: string,
+    data: string,
+    options: Pick<RuntimeAgentPromptWriteOptions, 'inputKind' | 'requireWriteSettlement'>
+  ): boolean | Promise<boolean> {
+    const settledWrite = this.ptyController?.writeWithSettlement
+    if (!options.requireWriteSettlement) {
+      return this.ptyController?.write(ptyId, data, options.inputKind) === true
+    }
+    if (!settledWrite) {
+      return false
+    }
+    return Promise.resolve(settledWrite.call(this.ptyController, ptyId, data, options.inputKind))
+      .catch(() => writeUnverifiable('provider_threw_after_handoff', true))
+      .then((settlement) => {
+        if (settlement.outcome === 'unverifiable') {
+          throw new Error(AGENT_PROMPT_WRITE_UNVERIFIABLE)
+        }
+        return settlement.outcome === 'accepted'
+      })
+  }
+
   /** The extra Enters a send waits for; OpenCode's paste retry runs on after the send instead. */
   protected resubmitHeldAgentPromptForSend(
     ptyId: string,
@@ -115,7 +143,7 @@ export abstract class OrcaRuntimeWithResubmitHeldAgentPrompt extends OrcaRuntime
         if (await agentPromptSettledWithin(held, 0, options.signal)) {
           return resubmits
         }
-        if (!this.ptyController?.write(ptyId, AGENT_PROMPT_SUBMIT, options.inputKind)) {
+        if (!(await this.writeAgentPromptInput(ptyId, AGENT_PROMPT_SUBMIT, options))) {
           return resubmits
         }
         resubmits += 1

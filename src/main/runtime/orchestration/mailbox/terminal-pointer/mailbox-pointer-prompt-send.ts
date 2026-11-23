@@ -1,6 +1,7 @@
-import type {
-  AgentPromptExpectedBinding,
-  RuntimeAgentPromptWriteOptions
+import {
+  AGENT_PROMPT_WRITE_UNVERIFIABLE,
+  type AgentPromptExpectedBinding,
+  type RuntimeAgentPromptWriteOptions
 } from '../../../terminal/input/agent-prompt-write-options'
 import type { WriteSettlement } from '../../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
 
@@ -78,6 +79,7 @@ export async function sendMailboxPointerPrompt(
   // A box: the retry is set from a callback, which control-flow narrowing cannot see.
   const heldRetry: { current: Promise<void> | null } = { current: null }
   let generation: number | null = null
+  let unverifiable = false
   try {
     const binding = host.getBinding(request.handle)
     if (binding.ptyId !== ptyId) {
@@ -88,6 +90,8 @@ export async function sendMailboxPointerPrompt(
       inputKind: 'orchestration',
       // Delivery admitted a settled agent, so Enter follows the paste without a render wait.
       composerReady: true,
+      // As notices always had: a write that cannot prove it landed is not counted as written.
+      requireWriteSettlement: true,
       expectedBinding: { ptyId: binding.ptyId, processIncarnation: binding.processIncarnation },
       // Delivery needs only the written Enter and its re-sends; waiting for the turn would hold
       // this terminal's other prompts behind a notice mid-turn, where no new turn starts.
@@ -136,8 +140,9 @@ export async function sendMailboxPointerPrompt(
     })
     // An OpenCode paste retry outlives the send and still needs this guard.
     await heldRetry.current
-  } catch {
+  } catch (error) {
     // The outcome is how far the write got; a stalled turn after Enter still took the notice.
+    unverifiable = error instanceof Error && error.message === AGENT_PROMPT_WRITE_UNVERIFIABLE
   } finally {
     settled = true
     if (generation !== null) {
@@ -147,6 +152,9 @@ export async function sendMailboxPointerPrompt(
   }
   if (enterWritten) {
     return { kind: 'submitted' }
+  }
+  if (unverifiable) {
+    return { kind: 'ambiguous' }
   }
   // A failure before the first Enter check is a refusal before the paste, or the PTY ending under it.
   if (!pasting || !enterReached) {
