@@ -43,8 +43,8 @@ export abstract class OrcaRuntimeWithWriteOrchestrationPointerPty extends OrcaRu
   protected orchestrationPointerTerminal(): MailboxPointerTerminal {
     return {
       sendPrompt: (request) => this.sendOrchestrationPointerPrompt(request),
-      sendHeldEnter: (handle, ptyId, pastedAt) =>
-        this.sendOrchestrationPointerHeldEnter(handle, ptyId, pastedAt)
+      sendHeldEnter: (handle, ptyId, pastedAt, beforeEnter) =>
+        this.sendOrchestrationPointerHeldEnter(handle, ptyId, pastedAt, beforeEnter)
     }
   }
 
@@ -78,7 +78,8 @@ export abstract class OrcaRuntimeWithWriteOrchestrationPointerPty extends OrcaRu
   private async sendOrchestrationPointerHeldEnter(
     handle: string,
     ptyId: string,
-    pastedAt: number
+    pastedAt: number,
+    beforeEnter: () => void
   ): Promise<WriteSettlement['outcome'] | 'typed'> {
     let typed = false
     try {
@@ -98,12 +99,22 @@ export abstract class OrcaRuntimeWithWriteOrchestrationPointerPty extends OrcaRu
             if (typed) {
               throw new Error('mailbox_pointer_composer_changed')
             }
+            // The send awaited reattachment; the process, mailbox or a dialog may have changed.
+            beforeEnter()
           }
         }
       )
-      return sent.writeSettlement?.outcome ?? (sent.accepted ? 'accepted' : 'refused')
+      const outcome = sent.writeSettlement?.outcome ?? (sent.accepted ? 'accepted' : 'refused')
+      if (outcome === 'refused') {
+        // An agent already at rest sends no idle edge to retry on.
+        this.armDeliveryRecheck(ptyId)
+      }
+      return outcome
     } catch {
       // Every throw comes before the Enter's write, so nothing left.
+      if (!typed) {
+        this.armDeliveryRecheck(ptyId)
+      }
       return typed ? 'typed' : 'refused'
     }
   }

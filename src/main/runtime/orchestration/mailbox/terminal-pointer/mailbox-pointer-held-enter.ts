@@ -3,6 +3,7 @@ import { isMailboxTerminalTakingInput } from '../routing/mailbox-owner'
 import {
   beginPointerAttempt,
   finishAttempt,
+  assertWritable,
   markEnterAttempted,
   sameTerminal,
   type PointerSubmitDependencies,
@@ -44,7 +45,8 @@ export function submitHeldMailboxPointerEnter(
       const outcome = await deps.terminal.sendHeldEnter(
         input.expectedTarget.terminal.handle,
         input.ptyId,
-        pastedAt
+        pastedAt,
+        () => assertWritable(deps, input)
       )
       if (!deps.state.isCurrentFlight(input.ptyId, input.flight)) {
         return

@@ -29,11 +29,13 @@ export type MailboxPointerPromptRequest = {
 export type MailboxPointerTerminal = {
   /** A whole notice; a refusal for an occupied composer arms the delivery recheck. */
   sendPrompt: (request: MailboxPointerPromptRequest) => Promise<MailboxPointerPromptOutcome>
-  /** A held notice's lone Enter; `typed` when someone typed since `pastedAt`. */
+  /** A held notice's lone Enter; `typed` when someone typed since `pastedAt`. `beforeEnter`
+   *  throws to refuse it at the write; a refusal arms the delivery recheck. */
   sendHeldEnter: (
     handle: string,
     ptyId: string,
-    pastedAt: number
+    pastedAt: number,
+    beforeEnter: () => void
   ) => Promise<WriteSettlement['outcome'] | 'typed'>
 }
 
