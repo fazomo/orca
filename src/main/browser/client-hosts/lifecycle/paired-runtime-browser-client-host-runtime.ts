@@ -112,6 +112,8 @@ const browserClientHosts =
             retireAutomation: retireBrowserClientPageAutomation,
             fileChannel,
             uploadStaging,
+            claimRelayedDownload: (guestWebContentsId) =>
+              browserManager.claimNextDownload(guestWebContentsId, null),
             onPageUnavailable
           })
           return executor
