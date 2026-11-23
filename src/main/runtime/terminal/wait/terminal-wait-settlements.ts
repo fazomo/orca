@@ -105,7 +105,7 @@ export abstract class OrcaRuntimeWithResolveExitWaiters extends OrcaRuntimeWithB
     }
   }
 
-  private armDeliveryRecheck(ptyId: string): void {
+  protected armDeliveryRecheck(ptyId: string): void {
     if (this.deliveryRecheckTimersByPtyId.has(ptyId)) {
       return
     }

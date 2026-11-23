@@ -2,11 +2,13 @@ import type {
   AgentPromptExpectedBinding,
   RuntimeAgentPromptWriteOptions
 } from '../../../terminal/input/agent-prompt-write-options'
+import type { WriteSettlement } from '../../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
 
-/** How far a notice got: `held` means it was pasted but its Enter was refused for someone's input. */
+/** How far a notice got. `held`: pasted, but its first Enter was refused, for someone's typing or
+ *  for a dialog or a terminal that stopped taking input. */
 export type MailboxPointerPromptOutcome =
   | { kind: 'refused'; composerOccupied: boolean }
-  | { kind: 'held' }
+  | { kind: 'held'; for: 'typing' | 'target'; pastedAt: number }
   | { kind: 'ambiguous' }
   | { kind: 'submitted' }
 
@@ -17,19 +19,44 @@ export type MailboxPointerPromptRequest = {
   requestId: string
   /** Throws to refuse the paste; runs with nothing written yet. */
   beforePaste: () => void
-  /** Throws to refuse the first Enter; runs once, before it is written. */
-  beforeEnter: () => void
+  /** Throws to refuse an Enter; runs before every one, `first` before the first. */
+  beforeEnter: (first: boolean) => void
+  /** Marks the Enter attempted when it was written with the paste and no check ran first. */
+  enterWrittenUnchecked: () => void
+}
+
+/** How mailbox delivery writes to an agent terminal. */
+export type MailboxPointerTerminal = {
+  /** A whole notice; a refusal for an occupied composer arms the delivery recheck. */
+  sendPrompt: (request: MailboxPointerPromptRequest) => Promise<MailboxPointerPromptOutcome>
+  /** A held notice's lone Enter; `typed` when someone typed since `pastedAt`. */
+  sendHeldEnter: (
+    handle: string,
+    ptyId: string,
+    pastedAt: number
+  ) => Promise<WriteSettlement['outcome'] | 'typed'>
 }
 
 export type MailboxPointerPromptHost = {
-  getBinding: (handle: string) => AgentPromptExpectedBinding
+  getBinding: (handle: string) => AgentPromptExpectedBinding & { generation: number }
   sendPrompt: (
     handle: string,
     prompt: string,
     options: RuntimeAgentPromptWriteOptions
   ) => Promise<unknown>
+  forgetPromptRequest: (ptyId: string, generation: number, requestId: string) => void
   composerHoldsDraft: (ptyId: string) => boolean
   readTypedInputAt: (ptyId: string) => number | null
+}
+
+/** Whether someone typed into the terminal at or after `since`. */
+export function typedSince(
+  readTypedInputAt: (ptyId: string) => number | null,
+  ptyId: string,
+  since: number
+): boolean {
+  const typedAt = readTypedInputAt(ptyId)
+  return typedAt !== null && typedAt >= since
 }
 
 /** Sends a mailbox notice the way every agent prompt is sent: pasted only into an empty composer,
@@ -41,21 +68,24 @@ export async function sendMailboxPointerPrompt(
   const { ptyId } = request
   let pasting = false
   let composerOccupied = false
-  let enterChecked = false
+  let enterReached = false
   let enterWritten = false
-  let enterHeld = false
+  let heldFor: 'typing' | 'target' | null = null
   let pastedAt = 0
   let settled = false
+  let heldRetry: Promise<void> | null = null
+  let generation: number | null = null
   try {
-    const expectedBinding = host.getBinding(request.handle)
-    if (expectedBinding.ptyId !== ptyId) {
+    const binding = host.getBinding(request.handle)
+    if (binding.ptyId !== ptyId) {
       return { kind: 'refused', composerOccupied: false }
     }
+    generation = binding.generation
     await host.sendPrompt(request.handle, request.prompt, {
       inputKind: 'orchestration',
       // Delivery admitted a settled agent, so Enter follows the paste without a render wait.
       composerReady: true,
-      expectedBinding,
+      expectedBinding: { ptyId: binding.ptyId, processIncarnation: binding.processIncarnation },
       // Delivery needs only the written Enter and its re-sends; waiting for the turn would hold
       // this terminal's other prompts behind a notice mid-turn, where no new turn starts.
       acceptQueued: true,
@@ -63,9 +93,15 @@ export async function sendMailboxPointerPrompt(
       observationTimeoutMs: 0,
       onSubmitWritten: () => {
         enterWritten = true
+        if (!enterReached) {
+          request.enterWrittenUnchecked()
+        }
+      },
+      onHeldPromptRetry: (retry) => {
+        heldRetry = retry
       },
       beforeWrite: async () => {
-        // A retry still running after the send settled no longer owns the composer.
+        // Nothing after the send, its held retry included, may still type here.
         if (settled) {
           throw new Error('mailbox_pointer_send_settled')
         }
@@ -79,33 +115,39 @@ export async function sendMailboxPointerPrompt(
           pasting = true
           return
         }
+        const first = !enterReached
+        enterReached = true
         // The composer was empty at the paste, so with nobody typing since it holds only the notice;
         // a screen match would add only ways to misread a reflowed composer.
-        const typedAt = host.readTypedInputAt(ptyId)
-        if (typedAt !== null && typedAt >= pastedAt) {
-          enterHeld = !enterWritten
+        if (typedSince(host.readTypedInputAt, ptyId, pastedAt)) {
+          heldFor ??= 'typing'
           throw new Error('mailbox_pointer_composer_changed')
         }
-        if (!enterChecked) {
-          enterChecked = true
-          try {
-            request.beforeEnter()
-          } catch (error) {
-            enterHeld = true
-            throw error
-          }
+        try {
+          request.beforeEnter(first)
+        } catch (error) {
+          heldFor ??= 'target'
+          throw error
         }
       }
     })
+    // An OpenCode paste retry outlives the send and still needs this guard.
+    await heldRetry
   } catch {
     // The outcome is how far the write got; a stalled turn after Enter still took the notice.
+  } finally {
+    settled = true
+    if (generation !== null) {
+      // A notice observes no turn, so its turn-start registration must not outlive it.
+      host.forgetPromptRequest(ptyId, generation, request.requestId)
+    }
   }
-  settled = true
   if (enterWritten) {
     return { kind: 'submitted' }
   }
-  if (!pasting) {
+  // A failure before the first Enter check is a refusal before the paste, or the PTY ending under it.
+  if (!pasting || !enterReached) {
     return { kind: 'refused', composerOccupied }
   }
-  return enterHeld ? { kind: 'held' } : { kind: 'ambiguous' }
+  return heldFor ? { kind: 'held', for: heldFor, pastedAt } : { kind: 'ambiguous' }
 }

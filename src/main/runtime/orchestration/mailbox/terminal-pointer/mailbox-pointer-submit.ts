@@ -1,4 +1,3 @@
-import type { OrchestrationDb } from '../../db/orchestration-db'
 import {
   MAILBOX_POINTER_ENTER_ATTEMPTED,
   MAILBOX_POINTER_RESERVED,
@@ -6,196 +5,149 @@ import {
 } from '../../db/messages/mailbox-pointer-enter-state'
 import {
   isMailboxTerminalTakingInput,
-  type OrchestrationMailboxOwner,
   type OrchestrationMailboxTerminal
 } from '../routing/mailbox-owner'
-import type {
-  OrchestrationMailboxDeliveryFlight,
-  OrchestrationMailboxPointerState
-} from './mailbox-pointer-state'
-import type {
-  MailboxPointerPromptOutcome,
-  MailboxPointerPromptRequest
-} from './mailbox-pointer-prompt-send'
+import {
+  assertWritable,
+  beginPointerAttempt,
+  finishAttempt,
+  markEnterAttempted,
+  sameTerminal,
+  type PointerAttempt,
+  type PointerSubmitDependencies,
+  type PointerSubmitInput
+} from './mailbox-pointer-attempt'
+import { submitHeldMailboxPointerEnter } from './mailbox-pointer-held-enter'
 
-type PointerSubmitDependencies = {
-  mailboxOwner: OrchestrationMailboxOwner
-  state: OrchestrationMailboxPointerState
-  getDb: () => OrchestrationDb | null
-  resolveSubmitTarget: (ptyId: string) => OrchestrationMailboxPointerSubmitTarget | null
-  isLeafPtyProvenAbsent: (ptyId: string) => Promise<boolean>
-  isPtyAwaitingUserInput: (ptyId: string) => boolean
-  sendPrompt: (request: MailboxPointerPromptRequest) => Promise<MailboxPointerPromptOutcome>
-  settle: (ptyId: string, flight: OrchestrationMailboxDeliveryFlight) => void
-  redrive: (mailboxHandle: string, force?: boolean) => void
-}
-
-export type OrchestrationMailboxPointerSubmitTarget = {
-  terminal: OrchestrationMailboxTerminal
-  processIncarnation: string
-}
-
-/** What a finished attempt does with its rows: give them back, mark them delivered to this
- *  terminal, or keep the claim because the notice may have landed. */
-type PointerFinish = 'release' | 'settle' | 'preserve'
+export type { OrchestrationMailboxPointerSubmitTarget } from './mailbox-pointer-attempt'
 
 export function submitOrchestrationMailboxPointer(
   deps: PointerSubmitDependencies,
-  input: {
-    mailboxHandle: string
-    messages: readonly { id: string; type: string }[]
-    newestSequence: number
-    ptyId: string
-    flight: OrchestrationMailboxDeliveryFlight
-    expectedTarget: OrchestrationMailboxPointerSubmitTarget
-    prompt: string
-  }
+  input: PointerSubmitInput
 ): void {
-  let finish: PointerFinish | null = null
-  let redrive: 'drain' | 'force' | null = null
-  let deferredUntilIdle = false
-  let phase = MAILBOX_POINTER_RESERVED
-  const messageIds = input.messages.map((message) => message.id)
-  const reservationTarget = {
-    ptyId: input.ptyId,
-    processIncarnation: input.expectedTarget.processIncarnation
-  }
-  const isCurrentFlight = (): boolean => deps.state.isCurrentFlight(input.ptyId, input.flight)
-  // The same process, still reading this mailbox; a replaced process gets nothing.
-  const sameTerminal = (): OrchestrationMailboxTerminal | null => {
-    const target = deps.resolveSubmitTarget(input.ptyId)
-    const terminal =
-      target?.terminal.handle === input.expectedTarget.terminal.handle &&
-      target.processIncarnation === input.expectedTarget.processIncarnation
-        ? target.terminal
-        : null
-    return terminal &&
-      deps.mailboxOwner.resolve(terminal, input.mailboxHandle) === input.mailboxHandle
-      ? terminal
-      : null
-  }
-  const assertWritable = (): void => {
-    const terminal = isCurrentFlight() ? sameTerminal() : null
-    if (
-      !terminal ||
-      !isMailboxTerminalTakingInput(terminal) ||
-      deps.isPtyAwaitingUserInput(input.ptyId)
-    ) {
-      throw new Error('mailbox_pointer_target_changed')
-    }
-  }
-  void deps
-    .isLeafPtyProvenAbsent(input.ptyId)
-    .then(async (absent) => {
-      if (absent) {
-        finish = 'release'
-        redrive = 'force'
-        return
-      }
-      if (!isCurrentFlight()) {
-        return
-      }
-      const terminal = sameTerminal()
+  const attempt = beginPointerAttempt(input, MAILBOX_POINTER_RESERVED)
+  const { messageIds, reservationTarget } = attempt
+  const rerun = (): void => submitOrchestrationMailboxPointer(deps, input)
+  void Promise.resolve()
+    .then(async () => {
+      const terminal = await openTarget(deps, input, attempt, rerun)
       if (!terminal) {
-        finish = 'release'
-        redrive = 'force'
-        return
-      }
-      if (
-        (terminal.lastAgentStatusObservedLive && terminal.lastAgentStatus === null) ||
-        deps.isPtyAwaitingUserInput(input.ptyId)
-      ) {
-        // A neutral title can outlive the foreground check, and an open dialog would take the
-        // Enter as its answer; nothing has been written yet.
-        deps.state.deferFlightUntilIdle(input.ptyId)
-        input.flight.submit = () => submitOrchestrationMailboxPointer(deps, input)
-        deferredUntilIdle = true
-        return
-      }
-      if (!isMailboxTerminalTakingInput(terminal)) {
-        // Nothing was written; the terminal's next input edge redelivers.
-        finish = 'release'
         return
       }
       const db = deps.getDb()
-      const outcome = await deps.sendPrompt({
+      const outcome = await deps.terminal.sendPrompt({
         handle: input.expectedTarget.terminal.handle,
         ptyId: input.ptyId,
         prompt: input.prompt,
         requestId: `mailbox-pointer:${messageIds.join(',')}`,
         beforePaste: () => {
-          assertWritable()
+          assertWritable(deps, input)
           if (!db?.markMailboxPointerWriteAttempted(messageIds, reservationTarget)) {
             throw new Error('mailbox_pointer_reservation_changed')
           }
-          phase = MAILBOX_POINTER_WRITE_ATTEMPTED
+          attempt.phase = MAILBOX_POINTER_WRITE_ATTEMPTED
         },
-        beforeEnter: () => {
-          assertWritable()
+        beforeEnter: (first) => {
+          assertWritable(deps, input)
+          if (first) {
+            markEnterAttempted(db, input, attempt)
+          }
+        },
+        enterWrittenUnchecked: () => {
           if (db?.markMailboxPointerEnterAttempted(messageIds, reservationTarget)) {
-            phase = MAILBOX_POINTER_ENTER_ATTEMPTED
-          } else if (db?.areUnreadMessages(input.mailboxHandle, messageIds) !== false) {
-            // Unread mail lost its claim to an earlier Enter or a release; read mail still gets its Enter.
-            throw new Error('mailbox_pointer_reservation_changed')
+            attempt.phase = MAILBOX_POINTER_ENTER_ATTEMPTED
           }
         }
       })
-      if (!isCurrentFlight()) {
+      if (!deps.state.isCurrentFlight(input.ptyId, input.flight)) {
         return
       }
       if (outcome.kind === 'submitted') {
-        finish = 'settle'
-        redrive = 'drain'
+        attempt.finish = 'settle'
+        attempt.redrive = 'drain'
       } else if (outcome.kind === 'refused') {
-        finish = 'release'
-        redrive = 'drain'
+        attempt.finish = 'release'
+        attempt.redrive = 'drain'
       } else if (outcome.kind === 'held') {
-        // The notice sits in this composer for whoever typed there; a replaced process lost it.
-        if (sameTerminal()) {
-          finish = 'settle'
-        } else {
-          finish = 'release'
-          redrive = 'force'
-        }
+        holdPastedNotice(deps, input, attempt, outcome.for, outcome.pastedAt)
       } else {
         // Neither delivery nor a safe resend is proven.
-        finish = 'preserve'
-        redrive = 'drain'
+        attempt.finish = 'preserve'
+        attempt.redrive = 'drain'
       }
     })
     .catch(() => {
-      const written = phase !== MAILBOX_POINTER_RESERVED
-      finish = written ? 'preserve' : 'release'
-      redrive = written ? 'drain' : null
+      const written = attempt.phase !== MAILBOX_POINTER_RESERVED
+      attempt.finish = written ? 'preserve' : 'release'
+      attempt.redrive = written ? 'drain' : null
     })
-    .finally(() => {
-      if (deferredUntilIdle) {
-        return
-      }
-      let released = false
-      let rollbackPersisted = true
-      if (finish) {
-        try {
-          if (finish === 'release') {
-            deps.getDb()?.releaseMailboxPointerEnter(messageIds, reservationTarget, [phase])
-          } else if (finish === 'settle') {
-            deps.getDb()?.settleMailboxPointerEnter(messageIds, reservationTarget, [phase], {
-              kind: 'terminal',
-              handle: input.expectedTarget.terminal.handle
-            })
-          }
-        } catch {
-          // Runtime teardown can close the DB while this submit is settling.
-          rollbackPersisted = finish !== 'release'
-        }
-        released =
-          finish === 'preserve'
-            ? deps.state.deactivateWatermark(input.mailboxHandle, input.newestSequence, input.ptyId)
-            : deps.state.clearWatermark(input.mailboxHandle, input.newestSequence, input.ptyId)
-      }
-      deps.settle(input.ptyId, input.flight)
-      if (released && rollbackPersisted && redrive) {
-        deps.redrive(input.mailboxHandle, redrive === 'force')
-      }
-    })
+    .finally(() => finishAttempt(deps, input, attempt))
+}
+
+/** The terminal to type into, or null when this attempt ends or waits for its agent to rest. */
+async function openTarget(
+  deps: PointerSubmitDependencies,
+  input: PointerSubmitInput,
+  attempt: PointerAttempt,
+  rerun: () => void
+): Promise<OrchestrationMailboxTerminal | null> {
+  if (await deps.isLeafPtyProvenAbsent(input.ptyId)) {
+    attempt.finish = 'release'
+    attempt.redrive = 'force'
+    return null
+  }
+  if (!deps.state.isCurrentFlight(input.ptyId, input.flight)) {
+    return null
+  }
+  const terminal = sameTerminal(deps, input)
+  if (!terminal) {
+    attempt.finish = 'release'
+    attempt.redrive = 'force'
+    return null
+  }
+  if (
+    (terminal.lastAgentStatusObservedLive && terminal.lastAgentStatus === null) ||
+    deps.isPtyAwaitingUserInput(input.ptyId)
+  ) {
+    // A neutral title can outlive the foreground check, and an open dialog would take the
+    // Enter as its answer; nothing has been written yet.
+    deps.state.deferFlightUntilIdle(input.ptyId)
+    input.flight.submit = rerun
+    attempt.deferred = true
+    return null
+  }
+  // A cold-parked terminal that started working while this attempt was checking waits for rest.
+  if (deps.state.holdUntilIdle(input.flight, rerun)) {
+    attempt.deferred = true
+    return null
+  }
+  if (!isMailboxTerminalTakingInput(terminal)) {
+    // Nothing was written; the terminal's next input edge redelivers.
+    attempt.finish = 'release'
+    return null
+  }
+  return terminal
+}
+
+/** A pasted notice whose first Enter was refused: someone typed, so it is theirs now; or a dialog
+ *  opened, so its Enter waits for the agent to rest, as before the paste. */
+function holdPastedNotice(
+  deps: PointerSubmitDependencies,
+  input: PointerSubmitInput,
+  attempt: PointerAttempt,
+  heldFor: 'typing' | 'target',
+  pastedAt: number
+): void {
+  if (!sameTerminal(deps, input)) {
+    attempt.finish = 'release'
+    attempt.redrive = 'force'
+    return
+  }
+  if (heldFor === 'typing') {
+    attempt.finish = 'settle'
+    return
+  }
+  deps.state.deferFlightUntilIdle(input.ptyId)
+  input.flight.submit = () => submitHeldMailboxPointerEnter(deps, input, pastedAt)
+  attempt.deferred = true
 }

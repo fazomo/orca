@@ -75,7 +75,7 @@ export function stageOrchestrationMailboxPointer<TWaiter extends OrchestrationMe
       resolveSubmitTarget: args.deps.resolveSubmitTarget,
       isLeafPtyProvenAbsent: args.deps.isLeafPtyProvenAbsent,
       isPtyAwaitingUserInput: args.deps.isPtyAwaitingUserInput,
-      sendPrompt: args.deps.sendPrompt,
+      terminal: args.deps.terminal,
       settle: args.settle,
       redrive: args.redrive
     },

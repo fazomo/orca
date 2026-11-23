@@ -247,7 +247,7 @@ export abstract class OrcaRuntimeWithStopRequestedPtyIds extends OrcaRuntimeWith
     isLeafPtyProvenAbsent: (ptyId) => this.isLeafPtyProvenAbsent(ptyId),
     redriveMailbox: (mailboxHandle, reservedTypes) =>
       this.deliverPendingMessagesForHandle(mailboxHandle, reservedTypes),
-    sendPrompt: (request) => this.sendOrchestrationPointerPrompt(request)
+    terminal: this.orchestrationPointerTerminal()
   })
 
   protected readonly orchestrationStructuredMailboxPointerDelivery =

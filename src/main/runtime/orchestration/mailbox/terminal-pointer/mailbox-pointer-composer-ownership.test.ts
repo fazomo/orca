@@ -28,6 +28,8 @@ const ELEVEN_MINUTES_MS = 11 * 60_000
 // Codex's composer holding typed text, its dim footer below, the cursor after the text.
 const CODEX_DRAFT =
   '\x1b[2J\x1b[H\x1b[1m›\x1b[22m my own draft\r\n\r\n\x1b[2m  gpt-5 default · ~/work\x1b[22m\x1b[1;16H'
+const CODEX_EMPTY =
+  '\x1b[2J\x1b[H\x1b[1m›\x1b[22m \r\n\r\n\x1b[2m  gpt-5 default · ~/work\x1b[22m\x1b[1;3H'
 
 async function idleCodexWithMail() {
   vi.useFakeTimers()
@@ -53,7 +55,7 @@ describe('mailbox notice composer ownership', () => {
     }
   })
 
-  it('leaves a draft alone after the delivery hold expires', async () => {
+  it('leaves a draft alone after the delivery hold expires, and delivers once it clears', async () => {
     const { db, message, runtime, write } = await idleCodexWithMail()
     runtime.terminalRunFacts.recordInput(PTY_ID, 'driving', 'draft', Date.now() - ELEVEN_MINUTES_MS)
     runtime.onPtyData(PTY_ID, CODEX_DRAFT, 2)
@@ -64,6 +66,44 @@ describe('mailbox notice composer ownership', () => {
 
     expect(write).not.toHaveBeenCalled()
     expect(db.getMessageById(message.id)).toMatchObject({ delivered_at: null, read: 0 })
+
+    // Clearing the draft fires no status edge; the mail must still reach the agent.
+    runtime.onPtyData(PTY_ID, CODEX_EMPTY, 3)
+    await runtime.serializeMainTerminalBuffer(PTY_ID)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(pointerCount(write)).toBe(1)
+    db.close()
+  })
+
+  it('leaves no turn-start registration behind for a later prompt to trip on', async () => {
+    const { db, runtime, write } = await idleCodexWithMail()
+    runtime.deliverPendingMessagesForHandle(TERMINAL_HANDLE)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(enterCount(write)).toBeGreaterThan(0)
+
+    // SAFETY: the correlation methods are protected; the test drives them as the prompt path does.
+    const correlation = runtime as unknown as {
+      getPtyLifecycleGeneration: (ptyId: string) => number
+      registerAgentPromptRequest: (...args: [string, number, string, number, number | null]) => void
+      acceptAgentPromptTurnStart: (
+        ...args: [
+          string,
+          number,
+          string,
+          number,
+          number | null,
+          { kind: 'hook'; workingStartedAt: number }
+        ]
+      ) => boolean
+    }
+    const generation = correlation.getPtyLifecycleGeneration(PTY_ID)
+    correlation.registerAgentPromptRequest(PTY_ID, generation, 'later-send', 0, null)
+    expect(
+      correlation.acceptAgentPromptTurnStart(PTY_ID, generation, 'later-send', 0, null, {
+        kind: 'hook',
+        workingStartedAt: Date.now() + 1_000
+      })
+    ).toBe(true)
     db.close()
   })
 

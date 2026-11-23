@@ -3,9 +3,12 @@ import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-r
 import { OrcaRuntimeWithRefreshFloatingWorkspacePtyLiveness } from '../../terminal/lifecycle/floating-session-liveness'
 import {
   sendMailboxPointerPrompt,
+  typedSince,
   type MailboxPointerPromptOutcome,
-  type MailboxPointerPromptRequest
+  type MailboxPointerPromptRequest,
+  type MailboxPointerTerminal
 } from '../mailbox/terminal-pointer/mailbox-pointer-prompt-send'
+import type { WriteSettlement } from '../../../../shared/terminal/pty/lifecycle/pty-write-settlement'
 import type { TerminalCursorContext } from '../../../../shared/terminal/input/terminal-composer-draft'
 import type { RuntimeLeafRecord } from '../../terminal/records/runtime-terminal-state-records'
 import type { ExecutionHostId } from '../../../../shared/execution-host/execution-host'
@@ -33,23 +36,59 @@ export abstract class OrcaRuntimeWithWriteOrchestrationPointerPty extends OrcaRu
 
   protected abstract hasComposerDraft(ptyId: string, context: TerminalCursorContext | null): boolean
 
-  /** A mailbox notice takes the agent-prompt path every send takes; plugin hooks are for prompts
+  protected abstract armDeliveryRecheck(ptyId: string): void
+
+  /** Mailbox notices take the agent-prompt path every send takes; plugin hooks are for prompts
    *  people send, so Orca's own notice skips them as it always has. */
-  protected sendOrchestrationPointerPrompt(
+  protected orchestrationPointerTerminal(): MailboxPointerTerminal {
+    return {
+      sendPrompt: (request) => this.sendOrchestrationPointerPrompt(request),
+      sendHeldEnter: (handle, ptyId, pastedAt) =>
+        this.sendOrchestrationPointerHeldEnter(handle, ptyId, pastedAt)
+    }
+  }
+
+  private async sendOrchestrationPointerPrompt(
     request: MailboxPointerPromptRequest
   ): Promise<MailboxPointerPromptOutcome> {
-    const composer = (ptyId: string) =>
-      this.readWholeScreenModel(ptyId)?.emulator.getCursorLineContext() ?? null
-    return sendMailboxPointerPrompt(
+    const outcome = await sendMailboxPointerPrompt(
       {
         getBinding: (handle) => this.getTerminalPromptRequestBinding(handle),
         sendPrompt: (handle, prompt, options) =>
           this.sendAgentPromptAfterPluginHooks(handle, prompt, options),
-        composerHoldsDraft: (ptyId) => this.hasComposerDraft(ptyId, composer(ptyId)),
+        forgetPromptRequest: (ptyId, generation, requestId) =>
+          this.forgetAgentPromptRequest(ptyId, generation, requestId),
+        composerHoldsDraft: (ptyId) =>
+          this.hasComposerDraft(
+            ptyId,
+            this.readWholeScreenModel(ptyId)?.emulator.getCursorLineContext() ?? null
+          ),
         readTypedInputAt: (ptyId) => this.terminalRunFacts.readLastTypedInputAt(ptyId)
       },
       request
     )
+    if (outcome.kind === 'refused' && outcome.composerOccupied) {
+      // Clearing a composer fires no edge, so the next offer must come from the recheck.
+      this.armDeliveryRecheck(request.ptyId)
+    }
+    return outcome
+  }
+
+  /** A held notice's Enter, once its dialog closed; only `refused` proves nothing left. */
+  private async sendOrchestrationPointerHeldEnter(
+    handle: string,
+    ptyId: string,
+    pastedAt: number
+  ): Promise<WriteSettlement['outcome'] | 'typed'> {
+    if (typedSince((id) => this.terminalRunFacts.readLastTypedInputAt(id), ptyId, pastedAt)) {
+      return 'typed'
+    }
+    const sent = await this.sendTerminalAfterPluginHooks(
+      handle,
+      { enter: true },
+      { inputKind: 'orchestration', requireWriteSettlement: true }
+    )
+    return sent.writeSettlement?.outcome ?? (sent.accepted ? 'accepted' : 'refused')
   }
 
   /** The terminal a staged pointer's Enter goes to, re-read so a replaced process gets none. */

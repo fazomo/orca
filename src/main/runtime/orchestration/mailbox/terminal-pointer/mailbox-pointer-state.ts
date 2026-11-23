@@ -54,6 +54,20 @@ export class OrchestrationMailboxPointerState {
     return true
   }
 
+  /** Holds `submit` while this flight waits for its agent to rest; false once rest was seen. */
+  holdUntilIdle(flight: OrchestrationMailboxDeliveryFlight, submit: () => void): boolean {
+    if (!flight.deferredUntilIdle) {
+      return false
+    }
+    if (flight.idleObservedWhileDeferred) {
+      flight.deferredUntilIdle = false
+      flight.idleObservedWhileDeferred = false
+      return false
+    }
+    flight.submit = submit
+    return true
+  }
+
   takeDeferredSubmit(ptyId: string): (() => void) | null {
     const flight = this.flightsByPtyId.get(ptyId)
     if (!flight?.deferredUntilIdle) {

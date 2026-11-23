@@ -39,10 +39,7 @@ import type { RuntimeTerminalAgentPresenceOptions } from '../terminal/query/runt
 import type { resolveTerminalOrchestrationCliCommand } from '../orchestration/workers/launch/orchestration-cli-command'
 import type { OrchestrationMailboxTerminal } from '../orchestration/mailbox/routing/mailbox-owner'
 import type { OrchestrationMailboxPointerSubmitTarget } from '../orchestration/mailbox/terminal-pointer/mailbox-pointer-submit'
-import type {
-  MailboxPointerPromptOutcome,
-  MailboxPointerPromptRequest
-} from '../orchestration/mailbox/terminal-pointer/mailbox-pointer-prompt-send'
+import type * as MailboxPointer from '../orchestration/mailbox/terminal-pointer/mailbox-pointer-prompt-send'
 import type { StructuredPointerTarget } from '../orchestration/mailbox/structured-pointer/structured-mailbox-pointer-delivery'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session/workspace-session-state-types'
 
@@ -271,9 +268,7 @@ export abstract class RuntimeConstructionServices extends RuntimeAgentStatusRead
     handle: string,
     reservedTypes?: ReadonlySet<string>
   ): void
-  protected abstract sendOrchestrationPointerPrompt(
-    request: MailboxPointerPromptRequest
-  ): Promise<MailboxPointerPromptOutcome>
+  protected abstract orchestrationPointerTerminal(): MailboxPointer.MailboxPointerTerminal
   protected abstract resolveStructuredMailboxTarget(
     mailboxHandle: string
   ): StructuredPointerTarget | null
