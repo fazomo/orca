@@ -38,7 +38,7 @@ function Queue({ cards }: { cards: QueuedMessageCard[] }) {
     <div
       data-native-chat-root="true"
       className="native-chat-appearance flex flex-col bg-chat-pane"
-      style={{ ...nativeChatAppearanceStyle({}), height: 520 }}
+      style={{ ...nativeChatAppearanceStyle({}), height: 700 }}
     >
       <div className="flex-1 p-4 text-sm text-muted-foreground">The tests pass on this branch.</div>
       <NativeChatDock>
