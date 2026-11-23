@@ -1,5 +1,5 @@
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { folderWorkspaceKey } from '../../../src/shared/workspace/identity/workspace-scope'
 import { useMobileNativeChatVisualRenderer } from '../session/native-chat/visual/MobileNativeChatVisual'
@@ -70,6 +70,9 @@ export const MobileBotGroupReader = memo(function Reader({
     [indexJournal, session.journal.items, session.journal.submissions, turn.operationIds]
   )
   const { hasMore, loadingEarlier, loadEarlier, status } = session.session
+  // The rows a page was last asked for at: a read that failed or added nothing asks again only
+  // once the rows change.
+  const pagedAt = useRef<unknown>(null)
   useEffect(() => {
     if (
       visible &&
@@ -77,8 +80,10 @@ export const MobileBotGroupReader = memo(function Reader({
       status === 'ready' &&
       hasMore &&
       !loadingEarlier &&
+      pagedAt.current !== session.journal.items &&
       botGroupTurnsOlderThanPage(session.journal, turn.operationIds, turn.ended, groupTurnItems)
     ) {
+      pagedAt.current = session.journal.items
       void loadEarlier()
     }
   }, [

@@ -16,6 +16,7 @@ import {
 } from '../native-chat/agent-session-attachments/agent-session-attachment-store-registry'
 import { hasAttachmentStoreReference } from './bot-attachment-images'
 import { admitBotGroupMessageAttachments, botGroupMessageSummary } from './bot-group-attachments'
+import { withEndedTurns } from './bot-group-ended-turns'
 import { requireStructuredHost, type BotRunFields } from './bot-chat-session'
 import { requireGroupBots } from './bot-group-membership'
 import type { BotGroupRuntime } from './bot-group-runtime'
@@ -283,13 +284,6 @@ export function resumePendingGroupDeliveries(groups: BotGroupRuntime): void {
   }
 }
 
-const ROOM_PAGE_REPLY_CHARS = 4_000
-
-/** A saved reply's tail, enough to read until the turn's own rows load. */
-function roomPageReply(reply: string): string {
-  return reply.length > ROOM_PAGE_REPLY_CHARS ? `…${reply.slice(-ROOM_PAGE_REPLY_CHARS)}` : reply
-}
-
 /** One room's latest page; its `group` carries that room's member sessions. */
 export function readBotGroup(
   groups: BotGroupRuntime,
@@ -307,14 +301,7 @@ export function readBotGroup(
     group,
     // Saved replies feed later posts' context; the room renders each turn from its chat, paging
     // back for an ended one whose rows are older than the loaded page.
-    messages: presentPageAnswers(messages).map((message) => ({
-      ...message,
-      turns: message.turns.map(({ reply, ...turn }) =>
-        reply === undefined
-          ? turn
-          : { ...turn, ended: reply ? { reply: roomPageReply(reply) } : {} }
-      )
-    })),
+    messages: withEndedTurns(presentPageAnswers(messages)),
     hasEarlier:
       messages.length > 0 &&
       groups.store.roomMessages(groupId, threadId, 1, messages[0].sequence).length > 0

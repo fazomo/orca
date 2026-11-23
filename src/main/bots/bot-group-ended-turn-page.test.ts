@@ -28,7 +28,7 @@ const turn = (operationId: string, reply?: string | null): BotGroupTurn => ({
   ...(reply === undefined ? {} : { reply })
 })
 
-it('pages back for an ended turn whose send is older than the loaded page', () => {
+function room() {
   const orchestration = new OrchestrationDb(':memory:')
   databases.push(orchestration)
   const store = new BotGroupStore(orchestration.db)
@@ -45,6 +45,11 @@ it('pages back for an ended turn whose send is older than the loaded page', () =
     members: [{ botId: 'bot-1', sessionId: 'bot-group-member-1' }],
     replyMode: { kind: 'mentions' }
   })
+  return { store, groups }
+}
+
+it('pages back for an ended turn whose send is older than the loaded page', () => {
+  const { store, groups } = room()
   store.append({
     id: 'message-1',
     groupId: 'group-1',
@@ -85,7 +90,7 @@ it('pages back for an ended turn whose send is older than the loaded page', () =
   const tail: { items: AgentJournalRenderItem[]; submissions: [] } = { items: [], submissions: [] }
   const ended = new Map(
     message.turns.flatMap((t) =>
-      t.ended ? [[t.operationId, Boolean(t.ended.reply)] as const] : []
+      t.ended ? [[t.operationId, t.ended.reply !== undefined] as const] : []
     )
   )
   const none = () => []
@@ -114,4 +119,26 @@ it('pages back for an ended turn whose send is older than the loaded page', () =
   expect(botGroupTurnsOlderThanPage(tail, ['finished'], ended, () => [said, call])).toBe(false)
   // A turn that ended without a reply has no text to find.
   expect(botGroupTurnsOlderThanPage(tail, ['quiet'], ended, () => [call])).toBe(false)
+})
+
+it('keeps a page of long replies far under the reply limit, newest posts first', () => {
+  const { store, groups } = room()
+  const long = 'x'.repeat(5_000)
+  for (let post = 0; post < 40; post++) {
+    store.append({
+      id: `message-${post}`,
+      groupId: 'group-1',
+      author: { kind: 'owner' },
+      text: '@all go',
+      createdAt: post + 2,
+      turns: Array.from({ length: 32 }, (_, index) => turn(`op-${post}-${index}`, long))
+    })
+  }
+  const { messages } = readBotGroup(groups, 'group-1')
+  const replies = messages.flatMap((m) => m.turns.map((t) => t.ended?.reply))
+  expect(JSON.stringify(messages).length).toBeLessThan(1_000_000)
+  // Every turn still reads as ended with a reply; the newest posts carry its text.
+  expect(replies.every((reply) => reply !== undefined)).toBe(true)
+  expect(messages.at(-1)!.turns[0].ended?.reply?.length).toBe(4_001)
+  expect(messages[0].turns[0].ended?.reply).toBe('')
 })

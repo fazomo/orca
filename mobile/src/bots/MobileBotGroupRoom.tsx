@@ -121,7 +121,7 @@ export function MobileBotGroupRoom({
                 operationIds: turns.map((turn) => turn.operationId),
                 ended: new Map(
                   turns.flatMap((turn) =>
-                    turn.ended ? [[turn.operationId, Boolean(turn.ended.reply)] as const] : []
+                    turn.ended ? [[turn.operationId, turn.ended.reply !== undefined] as const] : []
                   )
                 )
               }

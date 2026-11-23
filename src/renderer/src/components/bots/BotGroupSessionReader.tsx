@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import type { RuntimeClientTarget } from '../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import { useStructuredAgentSession } from '../native-chat/session/structured/use-structured-agent-session'
 import {
@@ -42,11 +42,15 @@ export const BotGroupSessionReader = memo(function BotGroupSessionReader({
     [indexJournal, controller.journalItems, controller.submissions, turn.operationIds]
   )
   const { readCurrent, hasOlder, loadingOlder, loadOlder } = controller
+  // The rows a page was last asked for at: a read that failed or added nothing asks again only
+  // once the rows change.
+  const pagedAt = useRef<unknown>(null)
   useEffect(() => {
     if (
       readCurrent &&
       hasOlder &&
       !loadingOlder &&
+      pagedAt.current !== controller.journalItems &&
       botGroupTurnsOlderThanPage(
         { items: controller.journalItems, submissions: controller.submissions },
         turn.operationIds,
@@ -54,6 +58,7 @@ export const BotGroupSessionReader = memo(function BotGroupSessionReader({
         groupTurnItems
       )
     ) {
+      pagedAt.current = controller.journalItems
       void loadOlder()
     }
   }, [

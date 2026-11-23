@@ -104,7 +104,8 @@ const BotGroupTurnSchema = z.object({
    *  the turn runs, and on turns saved before replies were. */
   reply: z.string().nullable().optional(),
   /** On a room page only, for a saved reply: the turn ended, so its chat holds its rows however
-   *  far back they are; `reply` is that reply's tail, drawn until they load. */
+   *  far back they are; `reply` is that reply's tail, drawn until they load (empty past the page's
+   *  budget), and absent when the turn left none. */
   ended: z.object({ reply: z.string().optional() }).optional(),
   /** Its answer to another member's request: sent as mail, so its own chat shows only the call. */
   answer: z.string().optional(),

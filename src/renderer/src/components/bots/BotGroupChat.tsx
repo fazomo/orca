@@ -123,7 +123,7 @@ export function BotGroupChat({
         if (!turn.revoked) {
           const ended = bySession.get(turn.sessionId)?.ended ?? new Map<string, boolean>()
           if (turn.ended) {
-            ended.set(turn.operationId, Boolean(turn.ended.reply))
+            ended.set(turn.operationId, turn.ended.reply !== undefined)
           }
           bySession.set(turn.sessionId, {
             sessionId: turn.sessionId,
