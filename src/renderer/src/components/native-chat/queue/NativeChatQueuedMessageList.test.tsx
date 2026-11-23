@@ -223,7 +223,10 @@ function hiddenAtRest(element: HTMLElement): boolean {
     node && node.tagName !== 'LI';
     node = node.parentElement
   ) {
-    if (node.classList.contains('opacity-0')) {
+    if (
+      node.hidden ||
+      ['opacity-0', 'invisible', 'hidden', 'sr-only'].some((name) => node!.classList.contains(name))
+    ) {
       return true
     }
   }

@@ -1,6 +1,8 @@
 import { defineFixture } from '../../../component-fixtures/component-fixture'
 import { nativeChatAppearanceStyle } from '../appearance/native-chat-appearance-style'
 import { NativeChatQueuedMessageList } from './NativeChatQueuedMessageList'
+import { NativeChatDock } from '../pane/dock/NativeChatDock'
+import { NativeChatComposer } from '../composer/NativeChatComposer'
 import type { StructuredAgentSessionQueuedMessagesController } from './use-structured-agent-session-queued-messages'
 import type { QueuedMessageCard } from '../../../../../shared/agent-session/view/structured-agent-session-queued-cards'
 import { QUEUED_MESSAGE_PAUSED_SEND_FAILED } from '../../../../../shared/agent-session/requests/agent-session-queued-message-wire'
@@ -35,10 +37,19 @@ function Queue({ cards }: { cards: QueuedMessageCard[] }) {
   return (
     <div
       data-native-chat-root="true"
-      className="native-chat-appearance bg-chat-pane py-2"
-      style={nativeChatAppearanceStyle({})}
+      className="native-chat-appearance flex flex-col bg-chat-pane"
+      style={{ ...nativeChatAppearanceStyle({}), height: 520 }}
     >
-      <NativeChatQueuedMessageList controller={controller} chatWorktreeId={null} />
+      <div className="flex-1 p-4 text-sm text-muted-foreground">The tests pass on this branch.</div>
+      <NativeChatDock>
+        <NativeChatQueuedMessageList controller={controller} chatWorktreeId={null} />
+        <NativeChatComposer
+          terminalTabId="row-tools-fixture-tab"
+          paneKey="row-tools-fixture-pane"
+          targetPtyId={null}
+          agent="claude"
+        />
+      </NativeChatDock>
     </div>
   )
 }
