@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest'
 import type { AgentJournalRenderItem } from '../../shared/agent-session/journal/agent-session-journal-types'
 import { type BotGroupTurn, withBotGroupTurnAnswer } from '../../shared/bots/bot-group'
+import type { NativeChatMessage } from '../../shared/native-chat/native-chat-types'
 import { botGroupTurnsOlderThanPage } from '../../shared/bots/bot-group-journal-paging'
 import { OrchestrationDb } from '../runtime/orchestration/db/orchestration-db'
 import { readBotGroup } from './bot-group-delivery'
@@ -65,6 +66,17 @@ it('pages back for an ended turn whose send is older than the loaded page', () =
     { type: 'text', text: 'Audit done.' }
   ])
   expect(withBotGroupTurnAnswer([], running)).toEqual([])
+  // Loaded rows that are only its last tool call still leave the reply showing.
+  const toolOnly: NativeChatMessage = {
+    id: 'tool',
+    role: 'assistant',
+    blocks: [{ type: 'tool-call', name: 'Bash', input: {} }],
+    timestamp: null,
+    source: 'transcript'
+  }
+  expect(withBotGroupTurnAnswer([toolOnly], finished).at(-1)?.blocks).toEqual([
+    { type: 'text', text: 'Audit done.' }
+  ])
   // A page marker is never saved back onto the post.
   store.update({ ...store.message('message-1')!, turns: message.turns })
   expect(store.message('message-1')!.turns.some((t) => 'ended' in t)).toBe(false)

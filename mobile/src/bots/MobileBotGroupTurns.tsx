@@ -191,7 +191,9 @@ export function MobileBotGroupTurn({
                             ? t('chat.queuedMessages.queuedState', 'Queued')
                             : turn.error
                               ? 'Not started'
-                              : 'Waiting for the native session…'
+                              : turn.ended
+                                ? 'Ended'
+                                : 'Waiting for the native session…'
                           : undefined
                     }
                     startedAt={clock?.startedAt ?? null}

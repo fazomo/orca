@@ -264,16 +264,12 @@ export function botGroupTurnReplyText(
 }
 
 /** A turn's rows as the room draws them on desktop and mobile: its answer to a member's request
- *  closes them, unless its own words already said it. An ended turn whose rows have not loaded
- *  shows its saved reply instead. */
+ *  closes them, unless its own words already said it. An ended turn whose loaded rows hold none of
+ *  its words (its text is older than the page, or no rows loaded) shows its saved reply instead. */
 export function withBotGroupTurnAnswer(
   messages: NativeChatMessage[],
   turn: Pick<BotGroupTurn, 'operationId' | 'answer' | 'ended'>
 ): NativeChatMessage[] {
-  const answer =
-    messages.length === 0 && turn.ended
-      ? (botGroupTurnReplyText(turn.ended.reply, turn.answer) ?? undefined)
-      : turn.answer
   const words = messages
     .flatMap((message) =>
       message.role === 'assistant'
@@ -281,6 +277,10 @@ export function withBotGroupTurnAnswer(
         : []
     )
     .join('\n')
+  const answer =
+    !words.trim() && turn.ended
+      ? (botGroupTurnReplyText(turn.ended.reply, turn.answer) ?? undefined)
+      : turn.answer
   return answer?.trim() && !holdsAnswer(words, answer)
     ? [
         ...messages,
