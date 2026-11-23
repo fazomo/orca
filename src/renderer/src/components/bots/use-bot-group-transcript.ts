@@ -49,7 +49,7 @@ export function useBotGroupTranscript(
         .catch((error: unknown) => !closed && setError(String(error)))
     }
     read()
-    const stopListening = onBotsChanged(read, hostId, { kinds: ['groups'] })
+    const stopListening = onBotsChanged(read, hostId, { kinds: ['groups', 'groupRooms'] })
     return () => {
       closed = true
       stopListening()

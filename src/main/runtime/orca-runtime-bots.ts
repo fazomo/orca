@@ -357,6 +357,11 @@ export abstract class OrcaRuntimeWithBots extends OrcaRuntimeWithLinearCommands 
     this.botChangeNotices.changed({ kinds: ['groups'] })
   }
 
+  /** Only a room's posts changed: open rooms re-read, the group list does not. */
+  notifyBotGroupRoomsChanged(): void {
+    this.botChangeNotices.changed({ kinds: ['groupRooms'] })
+  }
+
   /** A paired server's worker verdicts changed: their bots re-read (all, if a bot can't be read). */
   protected botFederatedWorkersChanged(dispatchIds: readonly string[]): void {
     this.botChatTreeWorkers.drop(dispatchIds)

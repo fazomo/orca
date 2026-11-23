@@ -4,7 +4,8 @@
  *  - `bot`: a bot itself (created, edited, removed);
  *  - `chats`: its chat records; `status`: a phase of one of its panes; `workers`: its Dispatches or worktrees;
  *  - `automations`: its automations or their runs; `threads`: its conversation links; `lookAround`: its Up next;
- *  - `groups`: a group room; `access`: the host's access requests; `settings`: tools, sign-ins, connectors;
+ *  - `groups`: a group room; `groupRooms`: only a room's posts (a member turn ended), not the group list;
+ *  - `access`: the host's access requests; `settings`: tools, sign-ins, connectors;
  *  - `items`: its items (what it is doing for its owner and needs from them). */
 export const BOT_CHANGE_KINDS = [
   'bot',
@@ -15,6 +16,7 @@ export const BOT_CHANGE_KINDS = [
   'threads',
   'lookAround',
   'groups',
+  'groupRooms',
   'access',
   'settings',
   'items'

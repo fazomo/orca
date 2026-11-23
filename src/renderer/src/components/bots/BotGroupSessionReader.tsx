@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { RuntimeClientTarget } from '../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import { useStructuredAgentSession } from '../native-chat/session/structured/use-structured-agent-session'
 import {
@@ -6,7 +6,10 @@ import {
   type indexBotGroupJournal,
   type BotGroupTurn
 } from '../../../../shared/bots/bot-group'
-import { botGroupTurnsOlderThanPage } from '../../../../shared/bots/bot-group-journal-paging'
+import {
+  BOT_GROUP_PAGE_RETRY_MS,
+  botGroupTurnsOlderThanPage
+} from '../../../../shared/bots/bot-group-journal-paging'
 export type BotGroupSession = ReturnType<typeof useStructuredAgentSession> & {
   groupTurnItems: ReturnType<typeof indexBotGroupJournal>
 }
@@ -42,26 +45,39 @@ export const BotGroupSessionReader = memo(function BotGroupSessionReader({
     [indexJournal, controller.journalItems, controller.submissions, turn.operationIds]
   )
   const { readCurrent, hasOlder, loadingOlder, loadOlder } = controller
-  // The rows a page was last asked for at: a read that failed or added nothing asks again only
-  // once the rows change.
+  // The rows a page was last asked for at: a read that failed or added nothing asks again after a
+  // pause, or at once when the rows change or the read restarts.
   const pagedAt = useRef<unknown>(null)
+  const [retry, setRetry] = useState(0)
   useEffect(() => {
+    if (!readCurrent) {
+      pagedAt.current = null
+      return undefined
+    }
     if (
-      readCurrent &&
-      hasOlder &&
-      !loadingOlder &&
-      pagedAt.current !== controller.journalItems &&
-      botGroupTurnsOlderThanPage(
+      !hasOlder ||
+      loadingOlder ||
+      !botGroupTurnsOlderThanPage(
         { items: controller.journalItems, submissions: controller.submissions },
         turn.operationIds,
         turn.ended,
         groupTurnItems
       )
     ) {
-      pagedAt.current = controller.journalItems
-      void loadOlder()
+      return undefined
     }
+    if (pagedAt.current === controller.journalItems) {
+      const timer = setTimeout(() => {
+        pagedAt.current = null
+        setRetry((count) => count + 1)
+      }, BOT_GROUP_PAGE_RETRY_MS)
+      return () => clearTimeout(timer)
+    }
+    pagedAt.current = controller.journalItems
+    void loadOlder()
+    return undefined
   }, [
+    retry,
     readCurrent,
     hasOlder,
     loadingOlder,

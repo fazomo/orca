@@ -150,6 +150,10 @@ export class BotGroupRuntime {
     this.runtime.notifyBotGroupsChanged()
   }
 
+  roomsChanged(): void {
+    this.runtime.notifyBotGroupRoomsChanged()
+  }
+
   create = (input: z.infer<typeof BotGroupCreate>) => createBotGroup(this, input)
   update = (input: z.infer<typeof BotGroupUpdate>) => updateBotGroup(this, input)
   delete = (groupId: string) => deleteBotGroup(this, groupId)

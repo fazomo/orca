@@ -56,15 +56,20 @@ export async function noteBotGroupMemberReply(
       candidate === turn ? { ...candidate, reply: finished?.text ?? null } : candidate
     )
   })
-  if (finished) {
+  const kept =
+    finished !== null &&
     groups.store.setLatest(
       owner.group.id,
       { authorName: turn.botName, text: finished.text, at: finished.completedAt ?? endedAt },
       { after, reply }
     )
+  // A new latest post moves the group list; otherwise only open rooms re-read, so they learn the
+  // turn ended even when its rows are older than its member chat's loaded page.
+  if (kept) {
+    groups.changed()
+  } else {
+    groups.roomsChanged()
   }
-  // The room learns the turn ended even when its rows are older than its member chat's loaded page.
-  groups.changed()
   if (!finished) {
     return
   }

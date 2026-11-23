@@ -16,7 +16,7 @@ import {
   type BotChangeKind,
   type BotChangeScope
 } from '../../../src/shared/bots/bot-change-scope'
-const ROOM_KINDS: readonly BotChangeKind[] = ['groups', 'bot']
+const ROOM_KINDS: readonly BotChangeKind[] = ['groups', 'groupRooms', 'bot']
 const ITEM_KINDS: readonly BotChangeKind[] = ['items', 'workers']
 // A chat starting or ending a wait on the owner: what a member's asks are read from.
 const ASK_KINDS: readonly BotChangeKind[] = ['chats', 'status']

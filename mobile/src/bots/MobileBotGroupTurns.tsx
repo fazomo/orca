@@ -15,7 +15,10 @@ import {
   type BotGroupTurn,
   withBotGroupTurnAnswer
 } from '../../../src/shared/bots/bot-group'
-import { botGroupTurnsOlderThanPage } from '../../../src/shared/bots/bot-group-journal-paging'
+import {
+  BOT_GROUP_PAGE_RETRY_MS,
+  botGroupTurnsOlderThanPage
+} from '../../../src/shared/bots/bot-group-journal-paging'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { colors } from '../theme/mobile-theme'
 import { groupStyles as styles } from './mobile-bot-group-styles'
@@ -70,23 +73,34 @@ export const MobileBotGroupReader = memo(function Reader({
     [indexJournal, session.journal.items, session.journal.submissions, turn.operationIds]
   )
   const { hasMore, loadingEarlier, loadEarlier, status } = session.session
-  // The rows a page was last asked for at: a read that failed or added nothing asks again only
-  // once the rows change.
+  // The rows a page was last asked for at: a read that failed or added nothing asks again after a
+  // pause, or at once when the rows change or the read restarts.
   const pagedAt = useRef<unknown>(null)
+  const [retry, setRetry] = useState(0)
   useEffect(() => {
-    if (
-      visible &&
-      connected &&
-      status === 'ready' &&
-      hasMore &&
-      !loadingEarlier &&
-      pagedAt.current !== session.journal.items &&
-      botGroupTurnsOlderThanPage(session.journal, turn.operationIds, turn.ended, groupTurnItems)
-    ) {
-      pagedAt.current = session.journal.items
-      void loadEarlier()
+    if (!visible || !connected || status !== 'ready') {
+      pagedAt.current = null
+      return undefined
     }
+    if (
+      !hasMore ||
+      loadingEarlier ||
+      !botGroupTurnsOlderThanPage(session.journal, turn.operationIds, turn.ended, groupTurnItems)
+    ) {
+      return undefined
+    }
+    if (pagedAt.current === session.journal.items) {
+      const timer = setTimeout(() => {
+        pagedAt.current = null
+        setRetry((count) => count + 1)
+      }, BOT_GROUP_PAGE_RETRY_MS)
+      return () => clearTimeout(timer)
+    }
+    pagedAt.current = session.journal.items
+    void loadEarlier()
+    return undefined
   }, [
+    retry,
     visible,
     connected,
     status,
