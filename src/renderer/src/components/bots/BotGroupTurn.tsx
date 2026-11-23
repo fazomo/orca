@@ -232,7 +232,7 @@ export const BotGroupTurn = memo(function BotGroupTurn({
         ? 'Not started'
         : lifecycle
           ? undefined
-          : 'Ended'
+          : t('bots.groups.turnEnded', 'Ended')
   return (
     <BotGroupTranscriptOwner
       context={files}
