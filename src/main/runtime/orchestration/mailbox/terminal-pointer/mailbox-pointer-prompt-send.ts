@@ -44,7 +44,8 @@ export async function sendMailboxPointerPrompt(
   let enterChecked = false
   let enterWritten = false
   let enterHeld = false
-  let typedAt: number | null = null
+  let pastedAt = 0
+  let settled = false
   try {
     const expectedBinding = host.getBinding(request.handle)
     if (expectedBinding.ptyId !== ptyId) {
@@ -64,19 +65,24 @@ export async function sendMailboxPointerPrompt(
         enterWritten = true
       },
       beforeWrite: async () => {
+        // A retry still running after the send settled no longer owns the composer.
+        if (settled) {
+          throw new Error('mailbox_pointer_send_settled')
+        }
         if (!pasting) {
           if (host.composerHoldsDraft(ptyId)) {
             composerOccupied = true
             throw new Error('mailbox_pointer_composer_occupied')
           }
-          typedAt = host.readTypedInputAt(ptyId)
+          pastedAt = Date.now()
           request.beforePaste()
           pasting = true
           return
         }
-        // The composer was empty at the paste, so with nobody typing since it holds only the notice.
-        // Why no screen match: a wrapped composer reads back with parts missing.
-        if (host.readTypedInputAt(ptyId) !== typedAt) {
+        // The composer was empty at the paste, so with nobody typing since it holds only the notice;
+        // a screen match would add only ways to misread a reflowed composer.
+        const typedAt = host.readTypedInputAt(ptyId)
+        if (typedAt !== null && typedAt >= pastedAt) {
           enterHeld = !enterWritten
           throw new Error('mailbox_pointer_composer_changed')
         }
@@ -94,6 +100,7 @@ export async function sendMailboxPointerPrompt(
   } catch {
     // The outcome is how far the write got; a stalled turn after Enter still took the notice.
   }
+  settled = true
   if (enterWritten) {
     return { kind: 'submitted' }
   }
