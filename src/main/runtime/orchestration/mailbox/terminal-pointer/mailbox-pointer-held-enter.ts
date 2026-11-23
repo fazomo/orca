@@ -14,9 +14,15 @@ import {
 export function submitHeldMailboxPointerEnter(
   deps: PointerSubmitDependencies,
   input: PointerSubmitInput,
-  pastedAt: number
+  pastedAt: number,
+  phase = MAILBOX_POINTER_WRITE_ATTEMPTED
 ): void {
-  const attempt = beginPointerAttempt(input, MAILBOX_POINTER_WRITE_ATTEMPTED)
+  const attempt = beginPointerAttempt(input, phase)
+  const holdUntilIdle = (): void => {
+    deps.state.deferFlightUntilIdle(input.ptyId)
+    input.flight.submit = () => submitHeldMailboxPointerEnter(deps, input, pastedAt, attempt.phase)
+    attempt.deferred = true
+  }
   void Promise.resolve()
     .then(async () => {
       if (!deps.state.isCurrentFlight(input.ptyId, input.flight)) {
@@ -29,12 +35,12 @@ export function submitHeldMailboxPointerEnter(
         return
       }
       if (deps.isPtyAwaitingUserInput(input.ptyId) || !isMailboxTerminalTakingInput(terminal)) {
-        deps.state.deferFlightUntilIdle(input.ptyId)
-        input.flight.submit = () => submitHeldMailboxPointerEnter(deps, input, pastedAt)
-        attempt.deferred = true
+        holdUntilIdle()
         return
       }
-      markEnterAttempted(deps.getDb(), input, attempt)
+      if (attempt.phase === MAILBOX_POINTER_WRITE_ATTEMPTED) {
+        markEnterAttempted(deps.getDb(), input, attempt)
+      }
       const outcome = await deps.terminal.sendHeldEnter(
         input.expectedTarget.terminal.handle,
         input.ptyId,
@@ -43,7 +49,12 @@ export function submitHeldMailboxPointerEnter(
       if (!deps.state.isCurrentFlight(input.ptyId, input.flight)) {
         return
       }
-      // Someone's typing makes the notice theirs; refused proves nothing left; it stays put either way.
+      if (outcome === 'refused') {
+        // Nothing left, and the notice still waits in the composer: try its Enter again at rest.
+        holdUntilIdle()
+        return
+      }
+      // Someone's typing makes the notice theirs.
       attempt.finish = outcome === 'unverifiable' ? 'preserve' : 'settle'
       attempt.redrive = outcome === 'accepted' ? 'drain' : null
     })

@@ -80,6 +80,16 @@ class MailboxRuntime extends OrcaRuntimeService {
   get idleEvidenceSource() {
     return this.tuiIdleEvidenceSource
   }
+
+  /** Registers a prompt request and offers it a hook turn start, as the prompt path does. */
+  acceptsHookTurnStartFor(ptyId: string, requestId: string, workingStartedAt: number): boolean {
+    const generation = this.getPtyLifecycleGeneration(ptyId)
+    this.registerAgentPromptRequest(ptyId, generation, requestId, 0, null)
+    return this.acceptAgentPromptTurnStart(ptyId, generation, requestId, 0, null, {
+      kind: 'hook',
+      workingStartedAt
+    })
+  }
 }
 
 export type MailboxNotificationHarness = {

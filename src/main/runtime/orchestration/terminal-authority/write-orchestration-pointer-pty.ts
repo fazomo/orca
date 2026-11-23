@@ -80,15 +80,32 @@ export abstract class OrcaRuntimeWithWriteOrchestrationPointerPty extends OrcaRu
     ptyId: string,
     pastedAt: number
   ): Promise<WriteSettlement['outcome'] | 'typed'> {
-    if (typedSince((id) => this.terminalRunFacts.readLastTypedInputAt(id), ptyId, pastedAt)) {
-      return 'typed'
+    let typed = false
+    try {
+      const sent = await this.sendTerminalAfterPluginHooks(
+        handle,
+        { enter: true },
+        {
+          inputKind: 'orchestration',
+          requireWriteSettlement: true,
+          // At the write itself: the send awaits reattachment and its writer before this.
+          beforeWrite: () => {
+            typed = typedSince(
+              (id) => this.terminalRunFacts.readLastTypedInputAt(id),
+              ptyId,
+              pastedAt
+            )
+            if (typed) {
+              throw new Error('mailbox_pointer_composer_changed')
+            }
+          }
+        }
+      )
+      return sent.writeSettlement?.outcome ?? (sent.accepted ? 'accepted' : 'refused')
+    } catch {
+      // Every throw comes before the Enter's write, so nothing left.
+      return typed ? 'typed' : 'refused'
     }
-    const sent = await this.sendTerminalAfterPluginHooks(
-      handle,
-      { enter: true },
-      { inputKind: 'orchestration', requireWriteSettlement: true }
-    )
-    return sent.writeSettlement?.outcome ?? (sent.accepted ? 'accepted' : 'refused')
   }
 
   /** The terminal a staged pointer's Enter goes to, re-read so a replaced process gets none. */

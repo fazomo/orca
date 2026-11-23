@@ -81,29 +81,7 @@ describe('mailbox notice composer ownership', () => {
     await vi.advanceTimersByTimeAsync(5_000)
     expect(enterCount(write)).toBeGreaterThan(0)
 
-    // SAFETY: the correlation methods are protected; the test drives them as the prompt path does.
-    const correlation = runtime as unknown as {
-      getPtyLifecycleGeneration: (ptyId: string) => number
-      registerAgentPromptRequest: (...args: [string, number, string, number, number | null]) => void
-      acceptAgentPromptTurnStart: (
-        ...args: [
-          string,
-          number,
-          string,
-          number,
-          number | null,
-          { kind: 'hook'; workingStartedAt: number }
-        ]
-      ) => boolean
-    }
-    const generation = correlation.getPtyLifecycleGeneration(PTY_ID)
-    correlation.registerAgentPromptRequest(PTY_ID, generation, 'later-send', 0, null)
-    expect(
-      correlation.acceptAgentPromptTurnStart(PTY_ID, generation, 'later-send', 0, null, {
-        kind: 'hook',
-        workingStartedAt: Date.now() + 1_000
-      })
-    ).toBe(true)
+    expect(runtime.acceptsHookTurnStartFor(PTY_ID, 'later-send', Date.now() + 1_000)).toBe(true)
     db.close()
   })
 
