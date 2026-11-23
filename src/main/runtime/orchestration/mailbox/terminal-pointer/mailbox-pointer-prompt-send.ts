@@ -73,7 +73,8 @@ export async function sendMailboxPointerPrompt(
   let heldFor: 'typing' | 'target' | null = null
   let pastedAt = 0
   let settled = false
-  let heldRetry: Promise<void> | null = null
+  // A box: the retry is set from a callback, which control-flow narrowing cannot see.
+  const heldRetry: { current: Promise<void> | null } = { current: null }
   let generation: number | null = null
   try {
     const binding = host.getBinding(request.handle)
@@ -98,7 +99,7 @@ export async function sendMailboxPointerPrompt(
         }
       },
       onHeldPromptRetry: (retry) => {
-        heldRetry = retry
+        heldRetry.current = retry
       },
       beforeWrite: async () => {
         // Nothing after the send, its held retry included, may still type here.
@@ -132,7 +133,7 @@ export async function sendMailboxPointerPrompt(
       }
     })
     // An OpenCode paste retry outlives the send and still needs this guard.
-    await heldRetry
+    await heldRetry.current
   } catch {
     // The outcome is how far the write got; a stalled turn after Enter still took the notice.
   } finally {
