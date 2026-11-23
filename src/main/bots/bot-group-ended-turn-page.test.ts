@@ -83,9 +83,35 @@ it('pages back for an ended turn whose send is older than the loaded page', () =
 
   // The loaded page holds only the turn's newest rows: no prompt row, no submission.
   const tail: { items: AgentJournalRenderItem[]; submissions: [] } = { items: [], submissions: [] }
-  const ended = new Set(message.turns.filter((t) => t.ended).map((t) => t.operationId))
+  const ended = new Map(
+    message.turns.flatMap((t) =>
+      t.ended ? [[t.operationId, Boolean(t.ended.reply)] as const] : []
+    )
+  )
   const none = () => []
   expect(botGroupTurnsOlderThanPage(tail, ['finished'], ended, none)).toBe(true)
   // A turn with no submission on the page and no end may be queued; nothing older to find.
   expect(botGroupTurnsOlderThanPage(tail, ['running'], ended, none)).toBe(false)
+  // Only its last tool call loaded: its text is further back, so the room keeps paging until it is.
+  const row = (body: AgentJournalRenderItem['body']): AgentJournalRenderItem => ({
+    itemId: 'row',
+    revision: 1,
+    body,
+    sequence: 1,
+    observedAt: 1
+  })
+  const call = row({
+    kind: 'message',
+    role: 'assistant',
+    blocks: [{ type: 'tool-call', name: 'Bash', input: {} }]
+  })
+  const said = row({
+    kind: 'message',
+    role: 'assistant',
+    blocks: [{ type: 'text', text: 'Audit done.' }]
+  })
+  expect(botGroupTurnsOlderThanPage(tail, ['finished'], ended, () => [call])).toBe(true)
+  expect(botGroupTurnsOlderThanPage(tail, ['finished'], ended, () => [said, call])).toBe(false)
+  // A turn that ended without a reply has no text to find.
+  expect(botGroupTurnsOlderThanPage(tail, ['quiet'], ended, () => [call])).toBe(false)
 })

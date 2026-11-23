@@ -119,8 +119,10 @@ export function MobileBotGroupRoom({
                 sessionId: member.sessionId,
                 agent: bot.agent,
                 operationIds: turns.map((turn) => turn.operationId),
-                endedIds: new Set(
-                  turns.filter((turn) => turn.ended).map((turn) => turn.operationId)
+                ended: new Map(
+                  turns.flatMap((turn) =>
+                    turn.ended ? [[turn.operationId, Boolean(turn.ended.reply)] as const] : []
+                  )
                 )
               }
             ]

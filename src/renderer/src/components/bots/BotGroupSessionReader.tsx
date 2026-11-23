@@ -20,7 +20,7 @@ export const BotGroupSessionReader = memo(function BotGroupSessionReader({
   target: RuntimeClientTarget
   turn: Pick<BotGroupTurn, 'sessionId' | 'agent'> & {
     operationIds: readonly string[]
-    endedIds: ReadonlySet<string>
+    ended: ReadonlyMap<string, boolean>
   }
   visible: boolean
   report: (sessionId: string, session: BotGroupSession | null) => void
@@ -50,7 +50,7 @@ export const BotGroupSessionReader = memo(function BotGroupSessionReader({
       botGroupTurnsOlderThanPage(
         { items: controller.journalItems, submissions: controller.submissions },
         turn.operationIds,
-        turn.endedIds,
+        turn.ended,
         groupTurnItems
       )
     ) {
@@ -62,7 +62,7 @@ export const BotGroupSessionReader = memo(function BotGroupSessionReader({
     loadingOlder,
     loadOlder,
     turn.operationIds,
-    turn.endedIds,
+    turn.ended,
     groupTurnItems,
     controller.journalItems,
     controller.submissions

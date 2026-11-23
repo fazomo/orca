@@ -45,7 +45,7 @@ export const MobileBotGroupReader = memo(function Reader({
 }: {
   turn: Pick<BotGroupTurn, 'sessionId' | 'agent'> & {
     operationIds: readonly string[]
-    endedIds: ReadonlySet<string>
+    ended: ReadonlyMap<string, boolean>
   }
   client: RpcClient
   support: StructuredAgentSessionHostSupport
@@ -77,7 +77,7 @@ export const MobileBotGroupReader = memo(function Reader({
       status === 'ready' &&
       hasMore &&
       !loadingEarlier &&
-      botGroupTurnsOlderThanPage(session.journal, turn.operationIds, turn.endedIds, groupTurnItems)
+      botGroupTurnsOlderThanPage(session.journal, turn.operationIds, turn.ended, groupTurnItems)
     ) {
       void loadEarlier()
     }
@@ -89,7 +89,7 @@ export const MobileBotGroupReader = memo(function Reader({
     loadingEarlier,
     loadEarlier,
     turn.operationIds,
-    turn.endedIds,
+    turn.ended,
     groupTurnItems,
     session.journal
   ])
